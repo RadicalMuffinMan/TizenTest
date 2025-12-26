@@ -72,10 +72,8 @@
             img.src = avatarUrl;
         }
         
-        // Load user libraries and add to navbar
         loadUserLibraries();
         
-        // Apply Moonfin toolbar customization settings (includes Jellyseerr button handling)
         applyToolbarSettings();
         
         updateClock();
@@ -142,14 +140,12 @@
                 }
             }
             
-            // Discover button is controlled by Jellyseerr settings
             var jellyseerrEnabled = settings.jellyseerrEnabled;
             var jellyseerrShowDiscover = settings.jellyseerrShowDiscover !== false;
             
             if (discoverBtn) {
                 if (!jellyseerrEnabled || !jellyseerrShowDiscover) {
                     console.log('[Navbar] Hiding discoverBtn');
-                    // Hide button completely and make it unfocusable
                     discoverBtn.style.display = 'none';
                     discoverBtn.style.pointerEvents = 'none';
                     discoverBtn.setAttribute('tabindex', '-1');
@@ -161,7 +157,6 @@
                 }
             }
             
-            // Hide/show library buttons
             var libraryButtons = document.querySelectorAll('.nav-btn[data-library-id]');
             libraryButtons.forEach(function(btn) {
                 if (settings.showLibrariesInToolbar === false) {
@@ -176,33 +171,27 @@
                     btn.setAttribute('tabindex', '0');
                 }
             });
-        } catch (e) {
-            // Settings parsing failed, continue with defaults
-        }
+        } catch (e) {}
     }
     
     /**
      * Load user libraries and add them to the navbar
      */
     function loadUserLibraries() {
-        // Use MultiServerManager if available, otherwise fall back to JellyfinAPI
         var auth = typeof MultiServerManager !== 'undefined' 
             ? MultiServerManager.getAuthForPage() 
             : JellyfinAPI.getStoredAuth();
         
         if (!auth) return;
         
-        // Check if libraries are already loaded to prevent duplicates
         var navPill = document.querySelector('.nav-pill');
         if (!navPill) return;
         
         var existingLibraryButtons = navPill.querySelectorAll('.nav-btn[data-library-id]');
         if (existingLibraryButtons.length > 0) {
-            // Libraries already loaded, skip
             return;
         }
         
-        // Use ConnectionPool to get libraries from all servers if available
         if (typeof ConnectionPool !== 'undefined' && MultiServerManager.getServerCount() > 0) {
             ConnectionPool.getAllLibraries(function(err, allLibraries) {
                 if (err || !allLibraries) {
@@ -210,7 +199,6 @@
                     return;
                 }
                 
-                // Filter to supported collection types
                 var libraries = allLibraries.filter(function(item) {
                     return item.CollectionType === 'movies' || 
                            item.CollectionType === 'tvshows' || 
@@ -222,7 +210,6 @@
                 renderLibraryButtons(libraries);
             });
         } else {
-            // Fallback to single-server mode
             JellyfinAPI.getUserViews(auth.serverAddress, auth.userId, auth.accessToken, function(err, response) {
                 if (err || !response || !response.Items) {
                     return;
@@ -236,9 +223,8 @@
                            item.CollectionType === 'livetv';
                 });
                 
-                // Add server info to libraries for consistency
                 libraries.forEach(function(lib) {
-                    lib.ServerId = null; // Single server mode
+                    lib.ServerId = null;
                     lib.ServerName = auth.serverName || 'Jellyfin Server';
                     lib.ServerUrl = auth.serverAddress;
                 });
@@ -270,7 +256,6 @@
                 var label = document.createElement('span');
                 label.className = 'nav-label';
                 
-                // Only show server name if there are actually multiple servers
                 var serverCount = typeof MultiServerManager !== 'undefined' ? MultiServerManager.getServerCount() : 0;
                 if (library.ServerName && serverCount > 1) {
                     label.textContent = library.Name + ' (' + library.ServerName + ')';
@@ -281,9 +266,7 @@
                 
                 btn.appendChild(label);
                 
-                // Store the click handler so we can enable/disable it
                 btn._libraryClickHandler = function() {
-                    // Live TV goes to the guide page
                     if (library.CollectionType === 'livetv') {
                         // If multi-server, pass server ID
                         if (library.ServerId) {
@@ -292,7 +275,6 @@
                             window.location.href = 'live-tv.html';
                         }
                     } else {
-                        // Pass both library ID and server ID if available
                         var url = 'library.html?id=' + library.Id;
                         if (library.ServerId) {
                             url += '&serverId=' + library.ServerId;
@@ -314,14 +296,11 @@
                     console.log('[Navbar] Library button focused:', btn.textContent.trim(), 'display:', btn.style.display, 'tabindex:', btn.getAttribute('tabindex'));
                 });
                 
-                // Append after settingsBtn (libraries come at the end)
                 navPill.appendChild(btn);
             });
             
-            // Apply toolbar settings after library buttons are added
             applyToolbarSettings();
             
-            // Re-setup navigation to include library buttons
             setupNavbarNavigation();
         }
     }
@@ -333,7 +312,6 @@
         var clockElement = document.getElementById('navClock');
         if (!clockElement) return;
         
-        // Check clock display setting
         var settings = storage.get('jellyfin_settings');
         var use24Hour = settings && JSON.parse(settings).clockDisplay === '24-hour';
         
@@ -344,11 +322,9 @@
         minutes = minutes < 10 ? '0' + minutes : minutes;
         
         if (use24Hour) {
-            // 24-hour format
             hours = hours < 10 ? '0' + hours : hours;
             clockElement.textContent = hours + ':' + minutes;
         } else {
-            // 12-hour format with AM/PM
             var ampm = hours >= 12 ? 'PM' : 'AM';
             hours = hours % 12;
             hours = hours ? hours : 12; // 0 becomes 12

@@ -223,7 +223,10 @@ var DiscoverController = (function() {
         if (typeof NavbarController !== 'undefined') {
             NavbarController.init('discover');
         }
-        
+        } catch (e) {
+            console.error('[Discover] Error in init():', e);
+            showConnectionRequired();
+        }
     }
 
     /**
@@ -353,7 +356,7 @@ var DiscoverController = (function() {
                     '<strong>For Non-Admin Users:</strong><br>' +
                     'Unfortunately, Jellyseerr is not available on Tizen without admin access. ' +
                     'You can ask your Jellyseerr admin to provide the API key, but note that it grants full admin access.<br><br>' +
-                    '<em>Alternatively, use Jellyseerr through a web browser or the WebOS version of Moonfin.</em>' +
+                    '<em>Alternatively, use Jellyseerr through a web browser.</em>' +
                 '</p>' +
                 '<button class="settings-btn" id="tizenBackBtn" tabindex="0">Go Back</button>' +
             '</div>';

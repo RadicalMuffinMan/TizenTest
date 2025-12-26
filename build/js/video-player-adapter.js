@@ -241,7 +241,7 @@ class ShakaPlayerAdapter extends VideoPlayerAdapter {
             this.hasDolbyVisionSupport = hasDolbyVision;
             this.hasHDRSupport = hasHDR;
 
-            // Optimized configuration for webOS with Dolby Vision and HDR support
+            // Optimized configuration with Dolby Vision and HDR support
             this.player.configure({
                 streaming: {
                     bufferingGoal: 20,
@@ -296,9 +296,7 @@ class ShakaPlayerAdapter extends VideoPlayerAdapter {
                     'avc1',     // H.264/AVC (SDR fallback)
                     'avc3'      // H.264/AVC variant
                 ]
-            });            // Note: Codec support depends on webOS device capabilities
-            // The player will automatically select the best codec the device can decode
-
+            });
             // Setup error handling
             this.player.addEventListener('error', (event) => {
                 this.emit('error', event.detail);
@@ -658,198 +656,6 @@ class ShakaPlayerAdapter extends VideoPlayerAdapter {
 }
 
 /**
- * webOS Native Video API Adapter
- */
-class WebOSVideoAdapter extends VideoPlayerAdapter {
-    constructor(videoElement) {
-        super(videoElement);
-        this.mediaObject = null;
-        this.initialized = false;
-        this.currentUrl = null;
-    }
-
-    async initialize() {
-        try {
-            // Check if webOS media API is available
-            if (!window.webOS || !window.webOS.media) {
-                return false;
-            }
-
-            this.initialized = true;
-            return true;
-        } catch (error) {
-            return false;
-        }
-    }
-
-    async load(url, options = {}) {
-        if (!this.initialized) {
-            throw new Error('webOS Video API not initialized');
-        }
-
-        try {
-            this.currentUrl = url;
-
-            // Create media object for hardware-accelerated playback
-            const mediaOption = {
-                mediaTransportType: options.mimeType && options.mimeType.includes('application/x-mpegURL') 
-                    ? 'HLS' 
-                    : 'BUFFERSTREAM'
-            };
-
-            // Unload previous media if exists
-            if (this.mediaObject) {
-                try {
-                    this.mediaObject.unload();
-                } catch (e) {
-                    // Ignore unload errors, will create new media object
-                }
-            }
-
-            // Load media using webOS native API
-            this.mediaObject = webOS.media.createMediaObject(
-                '/dev/video0',
-                mediaOption,
-                (event) => this.handleMediaEvent(event)
-            );
-
-            // Set source
-            this.videoElement.src = url;
-            
-            // Set start position if provided
-            if (options.startPosition) {
-                this.videoElement.currentTime = options.startPosition;
-            }
-
-            this.emit('loaded', { url });
-
-            // Wait for video to be ready
-            return new Promise((resolve, reject) => {
-                const onCanPlay = () => {
-                    this.videoElement.removeEventListener('canplay', onCanPlay);
-                    this.videoElement.removeEventListener('error', onError);
-                    resolve();
-                };
-                
-                const onError = (e) => {
-                    this.videoElement.removeEventListener('canplay', onCanPlay);
-                    this.videoElement.removeEventListener('error', onError);
-                    reject(e);
-                };
-
-                this.videoElement.addEventListener('canplay', onCanPlay);
-                this.videoElement.addEventListener('error', onError);
-            });
-
-        } catch (error) {
-            this.emit('error', error);
-            throw error;
-        }
-    }
-
-    handleMediaEvent(event) {
-        
-        if (event.type === 'error') {
-            this.emit('error', event);
-        } else if (event.type === 'buffering') {
-            this.emit('buffering', event.buffering);
-        }
-    }
-
-    selectAudioTrack(trackId) {
-        try {
-            const audioTracks = this.videoElement.audioTracks;
-            if (audioTracks && trackId >= 0 && trackId < audioTracks.length) {
-                for (let i = 0; i < audioTracks.length; i++) {
-                    audioTracks[i].enabled = (i === trackId);
-                }
-                return true;
-            }
-            return false;
-        } catch (error) {
-            return false;
-        }
-    }
-
-    selectSubtitleTrack(trackId) {
-        try {
-            const textTracks = this.videoElement.textTracks;
-            
-            if (trackId === -1) {
-                for (let i = 0; i < textTracks.length; i++) {
-                    textTracks[i].mode = 'disabled';
-                }
-                return true;
-            }
-
-            if (textTracks && trackId >= 0 && trackId < textTracks.length) {
-                for (let i = 0; i < textTracks.length; i++) {
-                    textTracks[i].mode = (i === trackId) ? 'showing' : 'disabled';
-                }
-                return true;
-            }
-            return false;
-        } catch (error) {
-            return false;
-        }
-    }
-
-    getAudioTracks() {
-        const audioTracks = this.videoElement.audioTracks;
-        if (!audioTracks) return [];
-
-        const tracks = [];
-        for (let i = 0; i < audioTracks.length; i++) {
-            const track = audioTracks[i];
-            tracks.push({
-                id: i,
-                language: track.language,
-                label: track.label || track.language,
-                enabled: track.enabled
-            });
-        }
-        return tracks;
-    }
-
-    getSubtitleTracks() {
-        const textTracks = this.videoElement.textTracks;
-        if (!textTracks) return [];
-
-        const tracks = [];
-        for (let i = 0; i < textTracks.length; i++) {
-            const track = textTracks[i];
-            if (track.kind === 'subtitles' || track.kind === 'captions') {
-                tracks.push({
-                    id: i,
-                    language: track.language,
-                    label: track.label || track.language,
-                    kind: track.kind
-                });
-            }
-        }
-        return tracks;
-    }
-
-    async destroy() {
-        if (this.mediaObject) {
-            try {
-                this.mediaObject.unload();
-            } catch (e) {
-                // Ignore unload errors during cleanup
-            }
-            this.mediaObject = null;
-        }
-        this.currentUrl = null;
-        this.initialized = false;
-        await super.destroy();
-    }
-
-    getName() {
-        return 'WebOSNative';
-    }
-}
-
-/**
  * Samsung Tizen AVPlay Video API Adapter
  * Uses Samsung's AVPlay API for hardware-accelerated playback
  */
@@ -890,9 +696,7 @@ class TizenVideoAdapter extends VideoPlayerAdapter {
             // Close previous session if any
             try {
                 webapis.avplay.close();
-            } catch (e) {
-                // Ignore close errors
-            }
+            } catch (e) {}
 
             // Open new media
             webapis.avplay.open(url);
@@ -1151,9 +955,7 @@ class TizenVideoAdapter extends VideoPlayerAdapter {
         try {
             webapis.avplay.stop();
             webapis.avplay.close();
-        } catch (error) {
-            // Ignore cleanup errors
-        }
+        } catch (error) {}
         this.currentUrl = null;
         this.isPrepared = false;
         this.initialized = false;

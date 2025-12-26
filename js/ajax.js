@@ -82,9 +82,9 @@ AJAX.prototype.request = function(url, settings) {
 	xhr.onreadystatechange = function () {
 		if (xhr.readyState == XMLHttpRequest.DONE) {
 			if (xhr.status == 200) {
-                if (settings.success) {
+				if (settings.success) {
 					try {
-                    	var jsonData = JSON.parse(xhr.responseText);
+						var jsonData = JSON.parse(xhr.responseText);
 						settings.success(jsonData);
 					} catch (error) {
 						if (typeof JellyfinAPI !== 'undefined') {
@@ -95,31 +95,30 @@ AJAX.prototype.request = function(url, settings) {
 								settings.error({error: "The server did not return valid JSON data."});
 							}
 						} else {
-							// Don't call error callback if success was already called
 							if (typeof JellyfinAPI !== 'undefined') {
 								JellyfinAPI.Logger.error('Unexpected error after successful request:', error);
 							}
 						}
 					}
-                }
-            } else if (xhr.status == 204) {
-                if (settings.success) {                
-                    settings.success({success: true})
-                }
-            } else if (settings.error) {
-                let errorData = {error: xhr.status};
-                try {
-                    if (xhr.responseText) {
-                        errorData.responseText = xhr.responseText;
-                        errorData.responseData = JSON.parse(xhr.responseText);
-                    }
-                } catch (e) {
-                    // Response wasn't JSON
-                }
-                settings.error(errorData);
+				}
+			} else if (xhr.status == 204) {
+				if (settings.success) {
+					settings.success({success: true});
+				}
+			} else if (settings.error) {
+				var errorData = {error: xhr.status};
+				try {
+					if (xhr.responseText) {
+						errorData.responseText = xhr.responseText;
+						errorData.responseData = JSON.parse(xhr.responseText);
+					}
+				} catch (e) {
+					// Response wasn't JSON
+				}
+				settings.error(errorData);
 			}
-        }
-	}
+		}
+	};
 	
 	if (settings.data) {
 		xhr.send(JSON.stringify(settings.data));

@@ -1,11 +1,11 @@
 /*
- * Jellyfin API Client for webOS
+ * Jellyfin API Client for Tizen
  * Handles server discovery, authentication, and API calls
  */
 console.log('[JELLYFIN-API] Loading jellyfin-api.js');
 
 /**
- * Jellyfin API Client for webOS
+ * Jellyfin API Client for Tizen
  * Provides methods for server discovery, authentication, and media API calls
  * @module JellyfinAPI
  */
@@ -47,8 +47,8 @@ var JellyfinAPI = (function() {
     };
 
     let deviceId = null;
-    const deviceName = 'LG Smart TV';
-    const appName = 'Moonfin for webOS';
+    const deviceName = 'Samsung Smart TV';
+    const appName = 'Moonfin for Tizen';
     const appVersion = '1.0.0';
 
     const SERVER_DISCOVERY_TIMEOUT_MS = 5000;

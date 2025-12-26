@@ -33,8 +33,6 @@ function STORAGE() {
 	this.dbKind = 'org.moonfin.tizen:1';
 	this.cache = {}; // In-memory cache for data
 	
-	// On Tizen, we use localStorage only (no Luna service available)
-	// webOS db8 is not available on Tizen
 	if (typeof JellyfinAPI !== 'undefined') {
 		JellyfinAPI.Logger.info('[STORAGE] Using localStorage for persistence');
 	}
@@ -68,14 +66,7 @@ STORAGE.prototype._initLocalStorage = function() {
 	}
 };
 
-/**
- * Initialize webOS storage by loading existing data from db8 (legacy, not used on Tizen)
- * @private
- */
-STORAGE.prototype._initWebOSStorage = function() {
-	// Not used on Tizen - redirect to localStorage init
-	this._initLocalStorage();
-};
+
 
 /**
  * Get value from storage
@@ -88,35 +79,6 @@ STORAGE.prototype.get = function(name, isJSON) {
 		isJSON = true;	
 	}
 	
-	// Use webOS persistent storage
-	if (this.useWebOSStorage) {
-		try {
-			// Check cache first (loaded from db8 on init)
-			if (this.cache.hasOwnProperty(name)) {
-				var value = this.cache[name];
-				if (isJSON && typeof value === 'string') {
-					return JSON.parse(value);
-				}
-				return value;
-			}
-			
-			// Fallback to localStorage if not in cache (db8 might not be ready yet)
-			if (localStorage && localStorage.getItem(name)) {
-				var localValue = localStorage.getItem(name);
-				if (isJSON) {
-					return JSON.parse(localValue);
-				}
-				return localValue;
-			}
-		} catch (e) {
-			if (typeof JellyfinAPI !== 'undefined') {
-				JellyfinAPI.Logger.error('[STORAGE] Error reading from webOS storage:', e);
-			}
-		}
-		return undefined;
-	}
-	
-	// Fallback to localStorage only
 	try {
 		if (localStorage && localStorage.getItem(name)) {
 			if (isJSON) {
@@ -188,12 +150,6 @@ STORAGE.prototype.remove = function(name) {
  * @returns {boolean} True if key exists
  */
 STORAGE.prototype.exists = function(name) {
-	// Use webOS persistent storage
-	if (this.useWebOSStorage) {
-		return this.cache.hasOwnProperty(name);
-	}
-	
-	// Fallback to localStorage
 	try {
 		if (localStorage) {
 			return localStorage.getItem(name) !== null;
@@ -520,28 +476,7 @@ STORAGE.prototype.getAllJellyseerrUserSettings = function(userId) {
 	var prefix = 'jellyseerr_' + userId + '_';
 	var settings = {};
 	
-	// Check cache first (for webOS)
-	if (this.useWebOSStorage && this.cache) {
-		for (var key in this.cache) {
-			if (this.cache.hasOwnProperty(key) && key.startsWith(prefix)) {
-				var settingKey = key.substring(prefix.length);
-				var value = this.cache[key];
-				
-				// Try to parse JSON
-				if (typeof value === 'string' && (value.startsWith('{') || value.startsWith('['))) {
-					try {
-						settings[settingKey] = JSON.parse(value);
-					} catch (e) {
-						settings[settingKey] = value;
-					}
-				} else {
-					settings[settingKey] = value;
-				}
-			}
-		}
-	}
-	
-	// Also check localStorage
+	// Check localStorage
 	if (localStorage) {
 		try {
 			for (var i = 0; i < localStorage.length; i++) {
@@ -584,15 +519,6 @@ STORAGE.prototype.clearJellyseerrUserData = function(userId) {
 	var prefix = 'jellyseerr_' + userId + '_';
 	var keysToRemove = [];
 	
-	// Collect keys to remove from cache
-	if (this.useWebOSStorage && this.cache) {
-		for (var key in this.cache) {
-			if (this.cache.hasOwnProperty(key) && key.startsWith(prefix)) {
-				keysToRemove.push(key);
-			}
-		}
-	}
-	
 	// Collect keys from localStorage
 	if (localStorage) {
 		try {
@@ -625,17 +551,6 @@ STORAGE.prototype.clearJellyseerrUserData = function(userId) {
 STORAGE.prototype.clearJellyseerrSettings = function() {
 	var prefix = 'jellyseerr_';
 	var keysToRemove = [];
-	
-	// Collect keys to remove from cache
-	if (this.useWebOSStorage && this.cache) {
-		for (var key in this.cache) {
-			if (this.cache.hasOwnProperty(key) && key.startsWith(prefix)) {
-				// Skip user-specific keys (they have userId in them)
-				if (key.match(/jellyseerr_[a-f0-9]{32}_/)) continue;
-				keysToRemove.push(key);
-			}
-		}
-	}
 	
 	// Collect keys from localStorage
 	if (localStorage) {

@@ -51,15 +51,6 @@ var SearchController = (function() {
             if (elements.searchInput) {
                 focusManager.inInput = true;
                 elements.searchInput.focus();
-                
-                // Trigger keyboard on webOS
-                if (typeof webOSTV !== 'undefined') {
-                    try {
-                        elements.searchInput.click();
-                    } catch (e) {
-                        // Fallback - keyboard should open on focus
-                    }
-                }
             }
         }, 100);
     }
@@ -730,14 +721,6 @@ var SearchController = (function() {
         focusManager.currentRow = -1;
         if (elements.searchInput) {
             elements.searchInput.focus();
-            // Re-trigger keyboard on webOS if needed
-            if (typeof webOSTV !== 'undefined') {
-                try {
-                    elements.searchInput.click();
-                } catch (e) {
-                    // Keyboard should open on focus
-                }
-            }
         }
     }
 

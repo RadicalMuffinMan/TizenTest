@@ -95,13 +95,12 @@ AJAX.prototype.request = function(url, settings) {
 								settings.error({error: "The server did not return valid JSON data."});
 							}
 						} else {
-							// Don't call error callback if success was already called
 							if (typeof JellyfinAPI !== 'undefined') {
 								JellyfinAPI.Logger.error('Unexpected error after successful request:', error);
 							}
 						}
 					}
-                }
+				}
             } else if (xhr.status == 204) {
                 if (settings.success) {                
                     settings.success({success: true})

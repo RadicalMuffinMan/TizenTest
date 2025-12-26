@@ -335,11 +335,9 @@
             });
         });
 
-        // Tizen specific keyboard handling
         document.addEventListener('keydown', function(evt) {
             evt = evt || window.event;
             
-            // Handle back button on Tizen remote
             if (evt.keyCode === KeyCodes.BACK) {
                 webOS.platformBack();
                 return;

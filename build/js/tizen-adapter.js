@@ -201,8 +201,8 @@
         getDeviceId: getDeviceId
     };
 
-    // Create compatibility layer for webOS calls
-    // This allows code that was written for webOS to work on Tizen
+    // Create backward compatibility shim for legacy code
+    // This provides a minimal compatibility layer for existing code
     window.webOS = {
         platformBack: platformBack,
         fetchAppId: function() {

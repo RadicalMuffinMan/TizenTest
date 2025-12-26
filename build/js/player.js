@@ -11,7 +11,7 @@ var PlayerController = (function() {
     let itemId = null;
     let itemData = null;
     let videoPlayer = null;
-    /** @type {Object|null} Video player adapter (Shaka/webOS/HTML5) */
+    /** @type {Object|null} Video player adapter (Shaka/Tizen/HTML5) */
     let playerAdapter = null;
     let controlsVisible = false;
     let controlsTimeout = null;
@@ -349,13 +349,13 @@ var PlayerController = (function() {
             // Reuse adapter if it already matches the preference
             if (playerAdapter) {
                 const name = playerAdapter.getName();
-                if (options.preferWebOS && name === 'WebOSVideo') {
+                if (options.preferTizen && name === 'TizenVideo') {
                     return;
                 }
                 if (options.preferHTML5 && name === 'HTML5Video') {
                     return;
                 }
-                if (!options.preferWebOS && !options.preferHTML5 && name === 'ShakaPlayer') {
+                if (!options.preferTizen && !options.preferHTML5 && name === 'ShakaPlayer') {
                     return;
                 }
                 await playerAdapter.destroy();
@@ -673,7 +673,7 @@ var PlayerController = (function() {
                         (videoStream.Codec.toLowerCase().startsWith('dvhe') || videoStream.Codec.toLowerCase().startsWith('dvh1'));
                     
                     if (isDolbyVisionMedia) {
-                        console.log('[Player] Dolby Vision media detected, will use WebOS native adapter if available');
+                        console.log('[Player] Dolby Vision media detected, will use Tizen native adapter if available');
                     }
                 }
                 
@@ -916,7 +916,7 @@ var PlayerController = (function() {
         // Prepare the correct adapter based on playback method
         var creationOptions = {};
         if (isDolbyVision) {
-            creationOptions.preferWebOS = true;
+            creationOptions.preferTizen = true;
         } else if (useDirectPlay) {
             creationOptions.preferHTML5 = true;
         }

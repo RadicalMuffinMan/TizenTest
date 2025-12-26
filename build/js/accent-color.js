@@ -24,19 +24,15 @@
                 root.style.setProperty('--accent-color', '#007bff');
                 root.style.setProperty('--accent-color-rgb', '0, 123, 255');
             }
-        } catch (e) {
-            // Failed to parse settings, use default
-        }
+        } catch (e) {}
     }
     
-    // Apply accent color when page loads
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', applyAccentColor);
     } else {
         applyAccentColor();
     }
     
-    // Expose globally
     window.AccentColor = {
         apply: applyAccentColor
     };

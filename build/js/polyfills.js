@@ -1,12 +1,12 @@
 /**
- * Polyfills for webOS 6 / Chromium 52 compatibility
+ * Polyfills for older Chromium compatibility
  * Provides URLSearchParams support for older browsers
  */
 
 (function() {
     'use strict';
 
-    // URLSearchParams polyfill for Chromium 52 / webOS 6
+    // URLSearchParams polyfill for older Chromium versions
     if (!window.URLSearchParams) {
         window.URLSearchParams = function(search) {
             var self = this;

@@ -1009,9 +1009,7 @@ var BrowseController = (function() {
                 try {
                     var parsedSettings = JSON.parse(storedSettings);
                     showFeaturedBanner = parsedSettings.showFeaturedBanner !== false;
-                } catch (e) {
-                    // Parse error, use default
-                }
+                } catch (e) {}
             }
             
             // Store state for navigation logic
@@ -1060,9 +1058,7 @@ var BrowseController = (function() {
                 try {
                     var parsedSettings = JSON.parse(storedSettings);
                     mergeContinueWatching = parsedSettings.mergeContinueWatchingNextUp || false;
-                } catch (e) {
-                    // Settings parsing failed, use separate rows
-                }
+                } catch (e) {}
             }
             
             // Check if multi-server mode is active
@@ -2035,9 +2031,7 @@ var BrowseController = (function() {
                 var parsedSettings = JSON.parse(settings);
                 featuredMediaFilter = parsedSettings.featuredMediaFilter || 'both';
             }
-        } catch (e) {
-            // Settings parsing failed, use default
-        }
+        } catch (e) {}
         
         var includeItemTypes = 'Movie,Series';
         if (featuredMediaFilter === 'movies') {
@@ -2832,12 +2826,9 @@ var BrowseController = (function() {
                     });
                     return merged;
                 }
-            } catch (e) {
-                // Settings parsing failed, return defaults
-            }
+            } catch (e) {}
         }
         
-        // Return default settings
         return defaults;
     }
 
@@ -2892,6 +2883,11 @@ console.log('[BROWSE] BrowseController defined, adding load listener');
 window.addEventListener('load', function() {
     console.log('[BROWSE] Window load event fired, calling init');
     BrowseController.init();
+    
+    // Initialize version checker after page loads
+    if (typeof VersionChecker !== 'undefined') {
+        VersionChecker.init();
+    }
 });
 
 window.addEventListener('visibilitychange', function() {

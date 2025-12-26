@@ -223,7 +223,10 @@ var DiscoverController = (function() {
         if (typeof NavbarController !== 'undefined') {
             NavbarController.init('discover');
         }
-        
+        } catch (e) {
+            console.error('[Discover] Error in init():', e);
+            showConnectionRequired();
+        }
     }
 
     /**

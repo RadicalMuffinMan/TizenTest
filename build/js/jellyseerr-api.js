@@ -1,5 +1,5 @@
 /*
- * Jellyseerr API Client for webOS
+ * Jellyseerr API Client for Tizen
  * Handles Jellyseerr server communication, authentication, and API calls
  * 
  * This module provides a complete HTTP client for interacting with Jellyseerr API
@@ -319,7 +319,7 @@ var JellyseerrAPI = (function() {
     // ==================== Cookie Storage ====================
     
     /**
-     * Cookie storage manager using webOS db8 + localStorage fallback
+     * Cookie storage manager using localStorage
      * Cookies are stored per-user to support multiple Jellyfin users
      */
     const CookieStorage = {

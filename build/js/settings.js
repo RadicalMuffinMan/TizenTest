@@ -1844,9 +1844,7 @@ var SettingsController = (function() {
                     });
                     return merged;
                 }
-            } catch (e) {
-                // Settings parsing failed, return defaults
-            }
+            } catch (e) {}
         }
         return JSON.parse(JSON.stringify(defaultHomeRows));
     }
@@ -3039,7 +3037,7 @@ var SettingsController = (function() {
         // Add keyboard navigation for modal
         var lastKeyTime = 0;
         var keyHandler = function(e) {
-            // Debounce rapid key events (webOS bug workaround)
+            // Debounce rapid key events
             var now = Date.now();
             if (now - lastKeyTime < 50) {
                 console.log('[ADD SERVER NAV] Debounced rapid key event');

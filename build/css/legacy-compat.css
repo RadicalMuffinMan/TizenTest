@@ -1,6 +1,6 @@
 /**
  * Legacy Browser Compatibility CSS
- * Polyfills for CSS features not supported in WebOS 6 (Chromium 53)
+ * Polyfills for CSS features not supported in older Chromium versions
  * 
  * This file provides fallbacks for:
  * - Flexbox gap property (added in Chrome 84)
