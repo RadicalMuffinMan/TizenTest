@@ -988,9 +988,17 @@ var BrowseController = (function () {
       clearAllItemFocus();
 
       var allRows = getAllRows();
-      if (allRows.length === 0) return;
+      if (allRows.length === 0) {
+         console.log("[BROWSE] No content rows available for focus");
+         enableFallbackNavigation();
+         return;
+      }
 
       var currentRowElement = allRows[focusManager.currentRow];
+      if (!currentRowElement) {
+         focusManager.currentRow = 0;
+         currentRowElement = allRows[0];
+      }
       if (!currentRowElement) return;
 
       var items = currentRowElement.querySelectorAll(".item-card");
@@ -1919,6 +1927,20 @@ var BrowseController = (function () {
       );
    }
 
+   /**
+    * Enable fallback navigation when no content rows are available
+    * Ensures users can still navigate to settings/logout even if content fails to load
+    */
+   function enableFallbackNavigation() {
+      console.log("[BROWSE] Enabling fallback navigation mode");
+      focusManager.inNavBar = true;
+
+      var homeBtn = document.getElementById("homeBtn");
+      if (homeBtn) {
+         homeBtn.focus();
+      }
+   }
+
    function loadRows(rowDefinitions) {
       var completed = 0;
       var hasContent = false;
@@ -1926,8 +1948,10 @@ var BrowseController = (function () {
       // Add failsafe timeout to always hide loading indicator
       var loadingFailsafe = setTimeout(function () {
          hideLoading();
+         console.warn("[BROWSE] Loading failsafe triggered after 15s");
          if (!hasContent) {
             showError("Loading timed out. Some content may not have loaded.");
+            enableFallbackNavigation();
          }
       }, 15000);
 
@@ -1936,6 +1960,7 @@ var BrowseController = (function () {
          clearTimeout(loadingFailsafe);
          hideLoading();
          showError("No content rows configured");
+         enableFallbackNavigation();
          return;
       }
 
@@ -1953,6 +1978,7 @@ var BrowseController = (function () {
                hideLoading();
                if (!hasContent) {
                   showError("No content available in your library");
+                  enableFallbackNavigation();
                }
                // Focus initialization handled by restoreFocusPosition in init()
             }
@@ -1965,6 +1991,10 @@ var BrowseController = (function () {
       var rowCallbackCalled = false;
       var rowTimeout = setTimeout(function () {
          if (!rowCallbackCalled) {
+            console.warn(
+               "[BROWSE] Row timeout for:",
+               rowDef.title || rowDef.type
+            );
             rowCallbackCalled = true;
             if (callback) callback(false);
          }
@@ -1995,23 +2025,34 @@ var BrowseController = (function () {
       }
 
       if (rowDef.type === "aggregated-continue-watching") {
-         if (typeof MultiServerRows !== "undefined") {
-            MultiServerRows.getContinueWatching(50)
-               .then(function (items) {
-                  if (!items || items.length === 0) {
+         if (
+            typeof MultiServerRows !== "undefined" &&
+            typeof Promise !== "undefined"
+         ) {
+            try {
+               MultiServerRows.getContinueWatching(50)
+                  .then(function (items) {
+                     if (!items || items.length === 0) {
+                        safeCallback(false);
+                        return;
+                     }
+                     renderRow(rowDef.title, items, "resume", rowDef.order);
+                     safeCallback(true);
+                  })
+                  .catch(function (err) {
+                     console.error(
+                        "Error loading aggregated Continue Watching:",
+                        err
+                     );
                      safeCallback(false);
-                     return;
-                  }
-                  renderRow(rowDef.title, items, "resume", rowDef.order);
-                  safeCallback(true);
-               })
-               .catch(function (err) {
-                  console.error(
-                     "Error loading aggregated Continue Watching:",
-                     err
-                  );
-                  safeCallback(false);
-               });
+                  });
+            } catch (e) {
+               console.error(
+                  "[BROWSE] Promise error in aggregated-continue-watching:",
+                  e
+               );
+               safeCallback(false);
+            }
          } else {
             safeCallback(false);
          }
@@ -2019,59 +2060,70 @@ var BrowseController = (function () {
       }
 
       if (rowDef.type === "aggregated-merged-continue-watching") {
-         if (typeof MultiServerRows !== "undefined") {
-            Promise.all([
-               MultiServerRows.getContinueWatching(50),
-               MultiServerRows.getNextUp(50),
-            ])
-               .then(function (results) {
-                  var resumeItems = results[0] || [];
-                  var nextUpItems = results[1] || [];
+         if (
+            typeof MultiServerRows !== "undefined" &&
+            typeof Promise !== "undefined"
+         ) {
+            try {
+               Promise.all([
+                  MultiServerRows.getContinueWatching(50),
+                  MultiServerRows.getNextUp(50),
+               ])
+                  .then(function (results) {
+                     var resumeItems = results[0] || [];
+                     var nextUpItems = results[1] || [];
 
-                  var seenIds = {};
-                  var allItems = [];
+                     var seenIds = {};
+                     var allItems = [];
 
-                  resumeItems.forEach(function (item) {
-                     if (!seenIds[item.Id]) {
-                        seenIds[item.Id] = true;
-                        allItems.push(item);
+                     resumeItems.forEach(function (item) {
+                        if (!seenIds[item.Id]) {
+                           seenIds[item.Id] = true;
+                           allItems.push(item);
+                        }
+                     });
+
+                     nextUpItems.forEach(function (item) {
+                        if (!seenIds[item.Id]) {
+                           seenIds[item.Id] = true;
+                           allItems.push(item);
+                        }
+                     });
+
+                     allItems.sort(function (a, b) {
+                        var dateA =
+                           a.UserData && a.UserData.LastPlayedDate
+                              ? new Date(a.UserData.LastPlayedDate)
+                              : new Date(0);
+                        var dateB =
+                           b.UserData && b.UserData.LastPlayedDate
+                              ? new Date(b.UserData.LastPlayedDate)
+                              : new Date(0);
+                        return dateB - dateA;
+                     });
+
+                     if (allItems.length === 0) {
+                        safeCallback(false);
+                        return;
                      }
-                  });
 
-                  nextUpItems.forEach(function (item) {
-                     if (!seenIds[item.Id]) {
-                        seenIds[item.Id] = true;
-                        allItems.push(item);
-                     }
-                  });
-
-                  allItems.sort(function (a, b) {
-                     var dateA =
-                        a.UserData && a.UserData.LastPlayedDate
-                           ? new Date(a.UserData.LastPlayedDate)
-                           : new Date(0);
-                     var dateB =
-                        b.UserData && b.UserData.LastPlayedDate
-                           ? new Date(b.UserData.LastPlayedDate)
-                           : new Date(0);
-                     return dateB - dateA;
-                  });
-
-                  if (allItems.length === 0) {
+                     renderRow(rowDef.title, allItems, "resume", rowDef.order);
+                     safeCallback(true);
+                  })
+                  .catch(function (err) {
+                     console.error(
+                        "Error loading aggregated merged Continue Watching:",
+                        err
+                     );
                      safeCallback(false);
-                     return;
-                  }
-
-                  renderRow(rowDef.title, allItems, "resume", rowDef.order);
-                  safeCallback(true);
-               })
-               .catch(function (err) {
-                  console.error(
-                     "Error loading aggregated merged Continue Watching:",
-                     err
-                  );
-                  safeCallback(false);
-               });
+                  });
+            } catch (e) {
+               console.error(
+                  "[BROWSE] Promise error in aggregated-merged-continue-watching:",
+                  e
+               );
+               safeCallback(false);
+            }
          } else {
             safeCallback(false);
          }
@@ -2079,20 +2131,28 @@ var BrowseController = (function () {
       }
 
       if (rowDef.type === "aggregated-nextup") {
-         if (typeof MultiServerRows !== "undefined") {
-            MultiServerRows.getNextUp(50)
-               .then(function (items) {
-                  if (!items || items.length === 0) {
+         if (
+            typeof MultiServerRows !== "undefined" &&
+            typeof Promise !== "undefined"
+         ) {
+            try {
+               MultiServerRows.getNextUp(50)
+                  .then(function (items) {
+                     if (!items || items.length === 0) {
+                        safeCallback(false);
+                        return;
+                     }
+                     renderRow(rowDef.title, items, "nextup", rowDef.order);
+                     safeCallback(true);
+                  })
+                  .catch(function (err) {
+                     console.error("Error loading aggregated Next Up:", err);
                      safeCallback(false);
-                     return;
-                  }
-                  renderRow(rowDef.title, items, "nextup", rowDef.order);
-                  safeCallback(true);
-               })
-               .catch(function (err) {
-                  console.error("Error loading aggregated Next Up:", err);
-                  safeCallback(false);
-               });
+                  });
+            } catch (e) {
+               console.error("[BROWSE] Promise error in aggregated-nextup:", e);
+               safeCallback(false);
+            }
          } else {
             safeCallback(false);
          }
