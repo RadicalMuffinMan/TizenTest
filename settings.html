@@ -12,6 +12,7 @@
       <script src="js/polyfills.js"></script>
       <script src="js/keycodes.js"></script>
       <script src="js/storage.js"></script>
+      <script src="js/server-logger.js"></script>
       <script src="js/multi-server.js"></script>
       <script src="js/accent-color.js"></script>
       <script src="js/ajax.js"></script>
@@ -751,6 +752,41 @@
                         </div>
                      </div>
                      <div class="setting-value" id="serverVersionValue">-</div>
+                  </div>
+               </div>
+
+               <div class="settings-group">
+                  <h2>Troubleshooting</h2>
+
+                  <div
+                     class="setting-item"
+                     data-setting="serverLogging"
+                     tabindex="0"
+                  >
+                     <div class="setting-label">
+                        <div class="setting-title">Server Error Logging</div>
+                        <div class="setting-description">
+                           Send error reports to your Jellyfin server for
+                           troubleshooting (viewable in Dashboard > Logs)
+                        </div>
+                     </div>
+                     <div class="setting-value" id="serverLoggingValue">
+                        Off
+                     </div>
+                  </div>
+
+                  <div
+                     class="setting-item"
+                     data-setting="sendTestLog"
+                     tabindex="0"
+                  >
+                     <div class="setting-label">
+                        <div class="setting-title">Send Test Log</div>
+                        <div class="setting-description">
+                           Send a test log entry to verify server logging works
+                        </div>
+                     </div>
+                     <div class="setting-value">Send</div>
                   </div>
                </div>
             </div>

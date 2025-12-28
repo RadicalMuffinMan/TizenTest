@@ -2513,6 +2513,13 @@ var LoginController = (function () {
          elements.errorMessage.textContent = message;
          elements.errorMessage.style.display = "block";
       }
+
+      if (typeof ServerLogger !== "undefined") {
+         ServerLogger.logAuthError(message, {
+            page: "login",
+            serverAddress: currentServerAddress || "unknown",
+         });
+      }
    }
 
    function clearError() {

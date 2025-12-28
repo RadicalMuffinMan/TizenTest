@@ -314,6 +314,7 @@ var SettingsController = (function () {
          mergeContinueWatchingNextUp: false,
          backdropBlurHome: 3,
          backdropBlurDetail: 3,
+         serverLogging: true,
       };
 
       for (var key in defaults) {
@@ -546,6 +547,12 @@ var SettingsController = (function () {
             settings.backdropBlurDetail !== undefined
                ? settings.backdropBlurDetail
                : 3;
+      }
+
+      // Server logging setting
+      var serverLoggingValue = document.getElementById("serverLoggingValue");
+      if (serverLoggingValue) {
+         serverLoggingValue.textContent = settings.serverLogging ? "On" : "Off";
       }
 
       // Jellyseerr settings
@@ -1407,6 +1414,39 @@ var SettingsController = (function () {
 
          case "disconnectJellyseerr":
             disconnectJellyseerr();
+            break;
+
+         case "serverLogging":
+            settings.serverLogging = !settings.serverLogging;
+            saveSettings();
+            updateSettingValues();
+            if (typeof ServerLogger !== "undefined") {
+               ServerLogger.setEnabled(settings.serverLogging);
+               if (settings.serverLogging) {
+                  ServerLogger.logAppInfo(
+                     "Server logging enabled from settings",
+                     { source: "settings" }
+                  );
+               }
+            }
+            break;
+
+         case "sendTestLog":
+            if (typeof ServerLogger !== "undefined" && settings.serverLogging) {
+               ServerLogger.logAppInfo("Test log from Moonfin settings", {
+                  test: true,
+                  timestamp: new Date().toISOString(),
+                  appVersion: "1.1.1",
+               });
+               showAlert(
+                  "Test log sent to your Jellyfin server. Check Dashboard > Logs to verify.",
+                  "Success"
+               );
+            } else if (!settings.serverLogging) {
+               showAlert("Please enable server logging first.", "Info");
+            } else {
+               showAlert("Server logger is not available.", "Error");
+            }
             break;
 
          case "logout":

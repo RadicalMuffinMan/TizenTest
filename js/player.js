@@ -95,7 +95,23 @@ var PlayerController = (function () {
       }
 
       hasTriedTranscode = true;
-      willUseDirectPlay = false; // Reset flag since we're switching to transcoding
+      willUseDirectPlay = false;
+
+      if (typeof ServerLogger !== "undefined") {
+         ServerLogger.logPlaybackWarning("Falling back to transcoding", {
+            reason: reason,
+            itemId: itemId,
+            itemName: currentItem ? currentItem.Name : "Unknown",
+            mediaSource: mediaSource
+               ? {
+                    id: mediaSource.Id,
+                    container: mediaSource.Container,
+                    videoCodec: mediaSource.VideoCodecs,
+                    audioCodec: mediaSource.AudioCodecs,
+                 }
+               : null,
+         });
+      }
 
       var modifiedSource = Object.assign({}, mediaSource);
       modifiedSource.SupportsDirectPlay = false;
@@ -783,6 +799,18 @@ var PlayerController = (function () {
                if (err.responseData && err.responseData.Message) {
                   details += "\nMessage: " + err.responseData.Message;
                }
+            }
+
+            if (typeof ServerLogger !== "undefined") {
+               ServerLogger.logPlaybackError("Failed to get playback info", {
+                  itemId: itemId,
+                  errorCode: err ? err.error : "unknown",
+                  errorMessage:
+                     err && err.responseData
+                        ? err.responseData.Message
+                        : message,
+                  title: title,
+               });
             }
 
             showErrorDialog(title, message, details);
@@ -2032,12 +2060,35 @@ var PlayerController = (function () {
       var errorMessage = videoPlayer.error
          ? videoPlayer.error.message
          : "Unknown error";
-      console.error(
-         "[Player] Error code:",
-         errorCode,
-         "Message:",
-         errorMessage
-      );
+
+      if (typeof ServerLogger !== "undefined") {
+         var playbackContext = {
+            errorCode: errorCode,
+            errorMessage: errorMessage,
+            itemId: itemId,
+            itemName: currentItem ? currentItem.Name : "Unknown",
+            mediaSource: currentMediaSource
+               ? {
+                    id: currentMediaSource.Id,
+                    protocol: currentMediaSource.Protocol,
+                    container: currentMediaSource.Container,
+                    supportsDirectPlay: currentMediaSource.SupportsDirectPlay,
+                    supportsDirectStream:
+                       currentMediaSource.SupportsDirectStream,
+                    supportsTranscoding: currentMediaSource.SupportsTranscoding,
+                 }
+               : null,
+            streamUrl: streamUrl ? streamUrl.substring(0, 200) : null,
+            currentTime: videoPlayer.currentTime,
+            duration: videoPlayer.duration,
+            readyState: videoPlayer.readyState,
+            networkState: videoPlayer.networkState,
+         };
+         ServerLogger.logPlaybackError(
+            "Video playback error: " + errorCode,
+            playbackContext
+         );
+      }
 
       clearLoadingTimeout();
       setLoadingState(LoadingState.ERROR);
