@@ -336,6 +336,7 @@ var PlayerController = (function () {
       videoPlayer.addEventListener("error", onError);
       videoPlayer.addEventListener("canplay", onCanPlay);
       videoPlayer.addEventListener("loadedmetadata", onLoadedMetadata);
+      videoPlayer.addEventListener("loadeddata", onLoadedData);
       videoPlayer.addEventListener("waiting", onWaiting);
       videoPlayer.addEventListener("playing", onPlaying);
 
@@ -1147,16 +1148,17 @@ var PlayerController = (function () {
          shouldUseDirectPlay = false;
          console.log("[Player] Force transcode mode selected");
       } else {
-         // Default behavior: prefer transcoding for high bit-depth content
-         // HEVC 10-bit and Dolby Vision can have compatibility issues on some Tizen devices
+         // Default behavior: trust the server's decision
+         // If the server says we can direct play based on our device profile, trust it
+         // The device profile already specifies HEVC Main 10, HDR10/HDR10+/HLG support
+         shouldUseDirectPlay = canDirectPlay;
+         
          if (canDirectPlay && (isHEVC10bit || isDolbyVision)) {
-            // Check if we should try direct play or prefer transcoding
-            // On Tizen, HEVC Main 10 support varies by device/year
-            console.log("[Player] HEVC 10-bit or Dolby Vision detected, checking compatibility...");
+            console.log("[Player] HEVC 10-bit or Dolby Vision detected - trusting device profile");
             
             // Log the decision for debugging
             if (typeof ServerLogger !== "undefined") {
-               ServerLogger.logPlaybackInfo("HEVC 10-bit/DV content detected", {
+               ServerLogger.logPlaybackInfo("HEVC 10-bit/DV content - using direct play", {
                   isHEVC10bit: isHEVC10bit,
                   isDolbyVision: isDolbyVision,
                   isHDR: isHDR,
@@ -1168,11 +1170,6 @@ var PlayerController = (function () {
                   canTranscode: canTranscode
                });
             }
-            
-            // Still try direct play but health check will fallback if it fails
-            shouldUseDirectPlay = canDirectPlay;
-         } else {
-            shouldUseDirectPlay = canDirectPlay;
          }
       }
       
@@ -1358,14 +1355,17 @@ var PlayerController = (function () {
             // Try to start playback immediately (don't wait for canplay)
             // This helps detect codec issues faster
             if (videoPlayer.paused) {
+               console.log("[Player] Video is paused, calling play()");
                videoPlayer.play().catch(function(err) {
                   console.log("[Player] play() failed (may be normal):", err.message);
                });
+            } else {
+               console.log("[Player] Video is already playing");
             }
             
-            if (useDirectPlay) {
-               startPlaybackHealthCheck(mediaSource);
-            }
+            // Start health check for both direct play AND transcoding
+            // This ensures playback actually starts regardless of method
+            startPlaybackHealthCheck(mediaSource, useDirectPlay);
          })
          .catch(function (error) {
             handlePlaybackLoadError(error, mediaSource, useDirectPlay);
@@ -1375,9 +1375,11 @@ var PlayerController = (function () {
    /**
     * Monitor playback health and fallback to HLS if issues detected
     * Checks for: stuck playback, no video/audio tracks, stalled buffering
+    * @param {Object} mediaSource - Current media source
+    * @param {boolean} isDirectPlay - Whether this is direct play (true) or transcoding (false)
     */
-   function startPlaybackHealthCheck(mediaSource) {
-      console.log("[Player] Starting playback health check for direct play");
+   function startPlaybackHealthCheck(mediaSource, isDirectPlay) {
+      console.log("[Player] Starting playback health check (isDirectPlay=" + isDirectPlay + ")");
 
       // Clear any existing check
       if (playbackHealthCheckTimer) {
@@ -1389,16 +1391,46 @@ var PlayerController = (function () {
       var playbackEverStarted = false;
 
       function checkHealth() {
-         // Stop checking after 5 attempts or if we're transcoding
-         if (checkCount >= 5 || isTranscoding) {
+         // Stop checking after 5 attempts for direct play, or 8 attempts for transcoding (needs more time)
+         var maxChecks = isDirectPlay ? 5 : 8;
+         if (checkCount >= maxChecks || (isTranscoding && !isDirectPlay)) {
+            // If we were checking transcoding and it's still working, stop checking
+            if (!isDirectPlay && playbackEverStarted) {
+               console.log("[Player] Transcode playback is progressing, stopping health checks");
+               playbackHealthCheckTimer = null;
+               return;
+            }
+            
             playbackHealthCheckTimer = null;
             
-            // Final check: if playback never started after all attempts, force fallback
-            // Check both paused and not-paused states since codec issues can leave video stuck either way
+            // Final check: if playback never started after all attempts, force fallback (only for direct play)
+            // For transcoding, this indicates a different issue that needs user attention
             if (!playbackEverStarted && videoPlayer.currentTime === 0) {
-               console.log("[Player] Playback never started after " + checkCount + " health checks, forcing fallback");
-               if (attemptTranscodeFallback(mediaSource, "Playback never started - possible codec issue")) {
-                  console.log("[Player] Falling back to HLS transcoding due to stuck playback");
+               console.log("[Player] Playback never started after " + checkCount + " health checks");
+               
+               if (isDirectPlay) {
+                  console.log("[Player] Direct play failed, attempting transcode fallback");
+                  if (attemptTranscodeFallback(mediaSource, "Playback never started - possible codec issue")) {
+                     console.log("[Player] Falling back to HLS transcoding due to stuck playback");
+                  }
+               } else {
+                  console.error("[Player] Transcoding also failed to start playback - likely a playback issue");
+                  // Log detailed state for debugging
+                  console.error("[Player] Video element state:", {
+                     paused: videoPlayer.paused,
+                     currentTime: videoPlayer.currentTime,
+                     readyState: videoPlayer.readyState,
+                     networkState: videoPlayer.networkState,
+                     error: videoPlayer.error ? videoPlayer.error.message : "none"
+                  });
+                  
+                  // Try one more play() call as last resort
+                  if (videoPlayer.paused) {
+                     console.log("[Player] Attempting final play() call...");
+                     videoPlayer.play().catch(function(err) {
+                        console.error("[Player] Final play() attempt failed:", err);
+                     });
+                  }
                }
             }
             return;
@@ -1421,15 +1453,19 @@ var PlayerController = (function () {
             videoPlayer.readyState < HTMLMediaElement.HAVE_FUTURE_DATA && checkCount >= 2;
          
          // Check 1c: Video still paused after several checks - canplay never fired
+         // For transcoding, be more lenient (check >= 4) as HLS needs time to buffer
+         var pausedThreshold = isDirectPlay ? 3 : 4;
          var stuckPaused = videoPlayer.paused && currentTime === 0 && 
-            videoPlayer.readyState < HTMLMediaElement.HAVE_METADATA && checkCount >= 3;
+            videoPlayer.readyState < HTMLMediaElement.HAVE_METADATA && checkCount >= pausedThreshold;
 
          // Check 2: Video element in bad state?
+         // For transcoding, also be more lenient with ready state checks
+         var readyStateThreshold = isDirectPlay ? 3 : 4;
          var isBadState =
             videoPlayer.error ||
             videoPlayer.networkState === HTMLMediaElement.NETWORK_NO_SOURCE ||
             (videoPlayer.readyState < HTMLMediaElement.HAVE_CURRENT_DATA &&
-               checkCount >= 3);
+               checkCount >= readyStateThreshold);
 
          // Check 3: No video or audio tracks? (for containers with track support)
          var noTracks = false;
@@ -1461,8 +1497,10 @@ var PlayerController = (function () {
             
             // Log to server for diagnostics
             if (typeof ServerLogger !== "undefined") {
-               ServerLogger.logPlaybackWarning("Direct play health check failed", {
+               var logMessage = isDirectPlay ? "Direct play health check failed" : "Transcode playback health check failed";
+               ServerLogger.logPlaybackWarning(logMessage, {
                   checkCount: checkCount,
+                  isDirectPlay: isDirectPlay,
                   stuck: isStuck,
                   stuckAtStart: stuckAtStart,
                   stuckPaused: stuckPaused,
@@ -1478,15 +1516,27 @@ var PlayerController = (function () {
             }
 
             playbackHealthCheckTimer = null;
-            if (
-               attemptTranscodeFallback(
-                  mediaSource,
-                  "Playback health check failed"
-               )
+            
+            // For direct play, attempt transcode fallback
+            // For transcoding, this is a more serious issue
+            if (isDirectPlay && 
+                attemptTranscodeFallback(
+                   mediaSource,
+                   "Playback health check failed"
+                )
             ) {
                console.log(
                   "[Player] Falling back to HLS transcoding due to playback issues"
                );
+            } else if (!isDirectPlay) {
+               // Transcoding itself is having issues, try to force play as last resort
+               console.error("[Player] Transcoding playback health check failed");
+               if (videoPlayer.paused) {
+                  console.log("[Player] Attempting to restart playback...");
+                  videoPlayer.play().catch(function(err) {
+                     console.error("[Player] Failed to restart playback:", err);
+                  });
+               }
             }
          } else {
             lastTime = currentTime;
@@ -2080,16 +2130,26 @@ var PlayerController = (function () {
    /**
     * Handle video ready to play event
     */
-   /**
-    * Handle video ready to play event
-    */
    function onCanPlay() {
-      console.log("[Player] Video ready to play");
+      console.log("[Player] Video ready to play (canplay event)");
+      console.log("[Player] Video state:", {
+         paused: videoPlayer.paused,
+         currentTime: videoPlayer.currentTime,
+         readyState: videoPlayer.readyState,
+         networkState: videoPlayer.networkState
+      });
+      
       clearLoadingTimeout();
       setLoadingState(LoadingState.READY);
 
+      // If video is paused and ready, try to play it
       if (videoPlayer.paused && videoPlayer.readyState >= 3) {
-         videoPlayer.play().catch(function (err) {});
+         console.log("[Player] Video is paused but ready, calling play()");
+         videoPlayer.play().catch(function (err) {
+            console.error("[Player] play() in onCanPlay failed:", err);
+         });
+      } else if (!videoPlayer.paused) {
+         console.log("[Player] Video is already playing");
       }
    }
 
@@ -2100,7 +2160,25 @@ var PlayerController = (function () {
     * Handle video metadata loaded event
     */
    function onLoadedMetadata() {
+      console.log("[Player] Video metadata loaded");
       clearLoadingTimeout();
+   }
+
+   /**
+    * Handle video data loaded event (first frame available)
+    */
+   function onLoadedData() {
+      console.log("[Player] Video data loaded (first frame ready)");
+      console.log("[Player] Video dimensions:", videoPlayer.videoWidth + "x" + videoPlayer.videoHeight);
+      clearLoadingTimeout();
+      
+      // Try to play if paused
+      if (videoPlayer.paused) {
+         console.log("[Player] Video has data but is paused, calling play()");
+         videoPlayer.play().catch(function(err) {
+            console.error("[Player] play() in onLoadedData failed:", err);
+         });
+      }
    }
 
    /**
@@ -2118,10 +2196,19 @@ var PlayerController = (function () {
     * Handle video playing event (playback started)
     */
    function onPlaying() {
+      console.log("[Player] Video playing event fired - playback has started!");
+      console.log("[Player] Video state at playing:", {
+         paused: videoPlayer.paused,
+         currentTime: videoPlayer.currentTime,
+         readyState: videoPlayer.readyState,
+         duration: videoPlayer.duration
+      });
+      
       clearLoadingTimeout();
       setLoadingState(LoadingState.READY);
 
       if (!progressInterval) {
+         console.log("[Player] Starting progress reporting");
          reportPlaybackStart();
          startProgressReporting();
          detectCurrentAudioTrack();

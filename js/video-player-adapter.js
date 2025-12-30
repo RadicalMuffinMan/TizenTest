@@ -1226,6 +1226,10 @@ class HTML5VideoAdapter extends VideoPlayerAdapter {
             hls.attachMedia(this.videoElement);
             console.log('[HTML5+HLS.js] Waiting for manifest...');
 
+            hls.on(Hls.Events.MEDIA_ATTACHED, () => {
+                console.log('[HTML5+HLS.js] Media attached to video element');
+            });
+
             hls.on(Hls.Events.MANIFEST_PARSED, (event, data) => {
                 manifestParsed = true;
                 console.log('[HTML5+HLS.js] Manifest parsed successfully');
@@ -1239,14 +1243,36 @@ class HTML5VideoAdapter extends VideoPlayerAdapter {
                 this.emit('loaded', { url });
                 this.emit('buffering', false);
                 
+                console.log('[HTML5+HLS.js] Video element state before play:', {
+                    paused: this.videoElement.paused,
+                    readyState: this.videoElement.readyState,
+                    networkState: this.videoElement.networkState,
+                    currentTime: this.videoElement.currentTime
+                });
+                
+                // Try to play - critical for transcoded streams
                 this.videoElement.play()
                     .then(() => {
-                        console.log('[HTML5+HLS.js] Playback started');
+                        console.log('[HTML5+HLS.js] Playback started successfully');
                         resolve();
                     })
                     .catch((err) => {
                         console.error('[HTML5+HLS.js] Play failed:', err);
-                        // Don't reject here - autoplay may be blocked but user can click play
+                        console.error('[HTML5+HLS.js] Error name:', err.name);
+                        console.error('[HTML5+HLS.js] Error message:', err.message);
+                        
+                        // Log to server for diagnostics
+                        if (typeof ServerLogger !== 'undefined') {
+                            ServerLogger.logPlaybackWarning('HLS play() failed after manifest parsed', {
+                                errorName: err.name,
+                                errorMessage: err.message,
+                                paused: this.videoElement.paused,
+                                readyState: this.videoElement.readyState,
+                                networkState: this.videoElement.networkState
+                            });
+                        }
+                        
+                        // Still resolve. the player controller will handle retrying
                         resolve();
                     });
             });
