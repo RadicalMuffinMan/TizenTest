@@ -311,15 +311,15 @@ var ServerLogger = (function () {
     * Get or generate device ID
     */
    function getDeviceId() {
-      if (typeof storage !== "undefined") {
-         var deviceId = storage.getItem("moonfin_device_id");
+      if (typeof storage !== "undefined" && storage) {
+         var deviceId = storage.get("moonfin_device_id", false);
          if (!deviceId) {
             deviceId =
                "tizen-" +
                Date.now() +
                "-" +
                Math.random().toString(36).substr(2, 9);
-            storage.setItem("moonfin_device_id", deviceId);
+            storage.set("moonfin_device_id", deviceId, false);
          }
          return deviceId;
       }
