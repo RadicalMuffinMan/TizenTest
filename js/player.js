@@ -1086,29 +1086,9 @@ var PlayerController = (function () {
          container: mediaSource.Container
       });
 
-      if (mediaSource.TranscodingUrl) {
-         streamUrl = auth.serverAddress + mediaSource.TranscodingUrl;
-
-         params = new URLSearchParams();
-         var urlParts = streamUrl.split("?");
-         if (urlParts.length > 1) {
-            streamUrl = urlParts[0];
-            params = new URLSearchParams(urlParts[1]);
-         }
-
-         if (!params.has("api_key")) {
-            params.append("api_key", auth.accessToken);
-         }
-         if (!params.has("PlaySessionId")) {
-            params.append("PlaySessionId", playSessionId);
-         }
-         if (!params.has("deviceId")) {
-            params.append("deviceId", JellyfinAPI.init());
-         }
-
-         mimeType = "application/x-mpegURL";
-         isTranscoding = true;
-      } else if (shouldUseDirectPlay) {
+      // Build playback URL based on selected method
+      // Order matters: check user's choice first, not server's TranscodingUrl
+      if (shouldUseDirectPlay) {
          // DirectPlay: Stream the file as-is, no server-side processing
          streamUrl = auth.serverAddress + "/Videos/" + itemId + "/stream";
          params.append("Static", "true");
@@ -1116,6 +1096,7 @@ var PlayerController = (function () {
          mimeType = "video/" + container;
          useDirectPlay = true;
          isTranscoding = false;
+         console.log("[Player] Using DirectPlay for " + container + " container");
       } else if (shouldUseDirectStream) {
          // DirectStream: Server remuxes (changes container) but doesn't transcode video/audio
          // This is useful when the container is incompatible but codecs are fine
@@ -1133,51 +1114,74 @@ var PlayerController = (function () {
          console.log("[Player] Using DirectStream (remux to " + targetContainer + ")");
       } else if (canTranscode) {
          // Transcoding: Full video/audio conversion to compatible format
-         streamUrl = auth.serverAddress + "/Videos/" + itemId + "/master.m3u8";
-         params.append("VideoCodec", "h264");
-         params.append("AudioCodec", "aac");
-         params.append("VideoBitrate", "20000000"); // Increased for better quality
-         params.append("AudioBitrate", "256000");
-         params.append("MaxWidth", "3840"); // Support 4K transcoding
-         params.append("MaxHeight", "2160");
-         params.append("SegmentLength", "6");
-         params.append("MinSegments", "3");
-         params.append("BreakOnNonKeyFrames", "false");
+         // Use server-provided TranscodingUrl if available, otherwise build our own
+         if (mediaSource.TranscodingUrl) {
+            streamUrl = auth.serverAddress + mediaSource.TranscodingUrl;
 
-         // Check for user-selected track preferences from details page (not for Live TV)
-         if (!isLiveTV) {
-            var preferredAudioIndex = localStorage.getItem(
-               "preferredAudioTrack_" + itemId
-            );
-            var preferredSubtitleIndex = localStorage.getItem(
-               "preferredSubtitleTrack_" + itemId
-            );
-
-            if (
-               preferredAudioIndex !== null &&
-               audioStreams[preferredAudioIndex]
-            ) {
-               params.append(
-                  "AudioStreamIndex",
-                  audioStreams[preferredAudioIndex].Index
-               );
+            params = new URLSearchParams();
+            var urlParts = streamUrl.split("?");
+            if (urlParts.length > 1) {
+               streamUrl = urlParts[0];
+               params = new URLSearchParams(urlParts[1]);
             }
 
-            if (
-               preferredSubtitleIndex !== null &&
-               preferredSubtitleIndex >= 0 &&
-               subtitleStreams[preferredSubtitleIndex]
-            ) {
-               params.append(
-                  "SubtitleStreamIndex",
-                  subtitleStreams[preferredSubtitleIndex].Index
+            if (!params.has("api_key")) {
+               params.append("api_key", auth.accessToken);
+            }
+            if (!params.has("PlaySessionId")) {
+               params.append("PlaySessionId", playSessionId);
+            }
+            if (!params.has("deviceId")) {
+               params.append("deviceId", JellyfinAPI.init());
+            }
+         } else {
+            streamUrl = auth.serverAddress + "/Videos/" + itemId + "/master.m3u8";
+            params.append("VideoCodec", "h264");
+            params.append("AudioCodec", "aac");
+            params.append("VideoBitrate", "20000000"); // Increased for better quality
+            params.append("AudioBitrate", "256000");
+            params.append("MaxWidth", "3840"); // Support 4K transcoding
+            params.append("MaxHeight", "2160");
+            params.append("SegmentLength", "6");
+            params.append("MinSegments", "3");
+            params.append("BreakOnNonKeyFrames", "false");
+
+            // Check for user-selected track preferences from details page (not for Live TV)
+            if (!isLiveTV) {
+               var preferredAudioIndex = localStorage.getItem(
+                  "preferredAudioTrack_" + itemId
                );
-               params.append("SubtitleMethod", "Encode");
+               var preferredSubtitleIndex = localStorage.getItem(
+                  "preferredSubtitleTrack_" + itemId
+               );
+
+               if (
+                  preferredAudioIndex !== null &&
+                  audioStreams[preferredAudioIndex]
+               ) {
+                  params.append(
+                     "AudioStreamIndex",
+                     audioStreams[preferredAudioIndex].Index
+                  );
+               }
+
+               if (
+                  preferredSubtitleIndex !== null &&
+                  preferredSubtitleIndex >= 0 &&
+                  subtitleStreams[preferredSubtitleIndex]
+               ) {
+                  params.append(
+                     "SubtitleStreamIndex",
+                     subtitleStreams[preferredSubtitleIndex].Index
+                  );
+                  params.append("SubtitleMethod", "Encode");
+               }
             }
          }
 
          mimeType = "application/x-mpegURL";
          isTranscoding = true;
+         console.log("[Player] Using HLS Transcoding");
       } else {
          console.log("Unsupported media source:", {
             container: mediaSource.Container,
@@ -1276,14 +1280,11 @@ var PlayerController = (function () {
             
             // Try to start playback immediately (don't wait for canplay)
             // This helps detect codec issues faster
-            if (videoPlayer.paused) {
-               console.log("[Player] Video is paused, calling play()");
-               videoPlayer.play().catch(function(err) {
-                  console.log("[Player] play() failed (may be normal):", err.message);
-               });
-            } else {
-               console.log("[Player] Video is already playing");
-            }
+            // Use playerAdapter.play() to support both HTML5 and Tizen AVPlay
+            console.log("[Player] Calling play() on adapter");
+            playerAdapter.play().catch(function(err) {
+               console.log("[Player] play() failed (may be normal):", err.message);
+            });
             
             // Start health check for both direct play AND transcoding
             // This ensures playback actually starts regardless of method
@@ -1390,11 +1391,17 @@ var PlayerController = (function () {
                });
                
                // Try one more play() call as last resort (only for HTML5)
-               if (!isNativeAdapter() && videoPlayer.paused) {
+               if (!isNativeAdapter() && isPaused()) {
                   console.log("[Player] Attempting final play() call...");
-                  videoPlayer.play().catch(function(err) {
-                     console.error("[Player] Final play() attempt failed:", err);
-                  });
+                  if (playerAdapter && typeof playerAdapter.play === 'function') {
+                     playerAdapter.play().catch(function(err) {
+                        console.error("[Player] Final play() attempt failed:", err);
+                     });
+                  } else {
+                     videoPlayer.play().catch(function(err) {
+                        console.error("[Player] Final play() attempt failed:", err);
+                     });
+                  }
                }
             }
             return;
@@ -1516,11 +1523,17 @@ var PlayerController = (function () {
             console.error("[Player] Playback issue detected - video may not be playing");
             
             // Try one more play() call as last resort
-            if (videoPlayer.paused) {
+            if (isPaused()) {
                console.log("[Player] Attempting to restart playback...");
-               videoPlayer.play().catch(function(err) {
-                  console.error("[Player] Failed to restart playback:", err);
-               });
+               if (playerAdapter && typeof playerAdapter.play === 'function') {
+                  playerAdapter.play().catch(function(err) {
+                     console.error("[Player] Failed to restart playback:", err);
+                  });
+               } else {
+                  videoPlayer.play().catch(function(err) {
+                     console.error("[Player] Failed to restart playback:", err);
+                  });
+               }
             }
          } else {
             lastTime = currentTime;
@@ -2175,9 +2188,15 @@ var PlayerController = (function () {
       // If video is paused and ready, try to play it
       if (videoPlayer.paused && videoPlayer.readyState >= 3) {
          console.log("[Player] Video is paused but ready, calling play()");
-         videoPlayer.play().catch(function (err) {
-            console.error("[Player] play() in onCanPlay failed:", err);
-         });
+         if (playerAdapter && typeof playerAdapter.play === 'function') {
+            playerAdapter.play().catch(function (err) {
+               console.error("[Player] play() in onCanPlay failed:", err);
+            });
+         } else {
+            videoPlayer.play().catch(function (err) {
+               console.error("[Player] play() in onCanPlay failed:", err);
+            });
+         }
       } else if (!videoPlayer.paused) {
          console.log("[Player] Video is already playing");
       }
@@ -2202,9 +2221,15 @@ var PlayerController = (function () {
       // Try to play if paused
       if (videoPlayer.paused) {
          console.log("[Player] Video has data but is paused, calling play()");
-         videoPlayer.play().catch(function(err) {
-            console.error("[Player] play() in onLoadedData failed:", err);
-         });
+         if (playerAdapter && typeof playerAdapter.play === 'function') {
+            playerAdapter.play().catch(function(err) {
+               console.error("[Player] play() in onLoadedData failed:", err);
+            });
+         } else {
+            videoPlayer.play().catch(function(err) {
+               console.error("[Player] play() in onLoadedData failed:", err);
+            });
+         }
       }
    }
 
@@ -2932,7 +2957,7 @@ var PlayerController = (function () {
             .load(videoUrl, { startPosition: currentTime })
             .then(function () {
                if (!wasPaused) {
-                  return videoPlayer.play();
+                  return playerAdapter.play();
                }
             })
             .then(function () {
@@ -2952,7 +2977,7 @@ var PlayerController = (function () {
             videoPlayer.currentTime = currentTime;
 
             if (!wasPaused) {
-               videoPlayer.play().catch(function (err) {});
+               playerAdapter ? playerAdapter.play() : videoPlayer.play().catch(function (err) {});
             }
 
             setLoadingState(LoadingState.READY);
