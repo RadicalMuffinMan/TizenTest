@@ -744,8 +744,26 @@ class TizenVideoAdapter extends VideoPlayerAdapter {
                     this.emit('timeupdate', { currentTime: timeInSeconds });
                 },
                 onerror: (errorType) => {
-                    console.error('[TizenAdapter] Error:', errorType);
-                    this.emit('error', { type: errorType });
+                    // Get detailed error info for debugging
+                    let state = 'UNKNOWN';
+                    try {
+                        state = webapis.avplay.getState();
+                    } catch (e) {}
+                    
+                    const errorDetails = {
+                        type: errorType,
+                        state: state,
+                        url: this.currentUrl ? this.currentUrl.substring(0, 100) : 'none'
+                    };
+                    
+                    console.error('[TizenAdapter] Playback error:', errorDetails);
+                    
+                    this.emit('error', {
+                        type: 'TIZEN_AVPLAY_ERROR',
+                        code: errorType,
+                        details: errorDetails,
+                        fatal: true
+                    });
                 },
                 onevent: (eventType, eventData) => {
                     console.log('[TizenAdapter] Event:', eventType, eventData);

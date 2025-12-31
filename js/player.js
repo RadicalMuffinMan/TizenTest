@@ -1540,13 +1540,65 @@ var PlayerController = (function () {
     */
    function handlePlaybackLoadError(error, mediaSource, isDirectPlay) {
       clearLoadingTimeout();
-      console.error("[Player] Playback load failed:", error.message);
+      console.error("[Player] Playback load failed:", error.message || error);
 
-      // Show error to user - don't auto-fallback like jellyfin-web
-      // User can manually switch play mode if needed
+      // If Tizen AVPlay failed on direct play, try HTML5 fallback
+      if (isDirectPlay && playerAdapter && playerAdapter.getName && playerAdapter.getName() === 'TizenAVPlay') {
+         console.log("[Player] Tizen AVPlay failed, trying HTML5 fallback...");
+         
+         fallbackToHTML5(mediaSource);
+         return;
+      }
+      
+      // If HTML5 failed on direct play, try transcoding
+      if (isDirectPlay && playerAdapter && playerAdapter.getName && playerAdapter.getName() === 'HTML5') {
+         console.log("[Player] HTML5 direct play failed, trying transcode...");
+         
+         fallbackToTranscoding();
+         return;
+      }
+
+      // Complete failure - show error to user
       setLoadingState(LoadingState.ERROR);
-      alert("Failed to start playback: " + (error.message || error));
-      window.history.back();
+      showErrorDialog(
+         "Playback Failed",
+         "Failed to start playback: " + (error.message || error),
+         "Try switching play mode in settings or selecting a different quality."
+      );
+   }
+
+   /**
+    * Fall back to HTML5 adapter when Tizen AVPlay fails
+    */
+   function fallbackToHTML5(mediaSource) {
+      console.log("[Player] Falling back to HTML5 adapter...");
+      
+      if (!mediaSource) {
+         console.error("[Player] No media source for HTML5 fallback");
+         return;
+      }
+      
+      // Stop current adapter
+      if (playerAdapter) {
+         try {
+            playerAdapter.stop();
+         } catch (e) {
+            console.warn("[Player] Error stopping Tizen adapter:", e);
+         }
+      }
+      
+      // Retry with HTML5
+      ensurePlayerAdapter({ preferHTML5: true }).then(function() {
+         console.log("[Player] Retrying playback with HTML5 adapter");
+         startPlayback(mediaSource).catch(function(err) {
+            console.error("[Player] HTML5 fallback also failed:", err);
+            // HTML5 failed too, try transcoding as last resort
+            fallbackToTranscoding();
+         });
+      }).catch(function(err) {
+         console.error("[Player] Failed to create HTML5 adapter:", err);
+         fallbackToTranscoding();
+      });
    }
 
    /**
