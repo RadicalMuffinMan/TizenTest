@@ -701,6 +701,12 @@ class TizenVideoAdapter extends VideoPlayerAdapter {
         try {
             this.currentUrl = url;
 
+            // Hide HTML video element since AVPlay renders on separate layer behind it
+            if (this.videoElement) {
+                this.videoElement.style.display = 'none';
+                console.log('[TizenAdapter] Hidden HTML video element for AVPlay rendering');
+            }
+
             // Close previous session if any
             try {
                 webapis.avplay.close();
@@ -880,6 +886,10 @@ class TizenVideoAdapter extends VideoPlayerAdapter {
     stop() {
         try {
             webapis.avplay.stop();
+            // Restore video element visibility
+            if (this.videoElement) {
+                this.videoElement.style.display = '';
+            }
         } catch (error) {
             console.error('[TizenAdapter] Stop error:', error);
         }
@@ -1013,6 +1023,10 @@ class TizenVideoAdapter extends VideoPlayerAdapter {
         try {
             webapis.avplay.stop();
             webapis.avplay.close();
+            // Restore video element visibility
+            if (this.videoElement) {
+                this.videoElement.style.display = '';
+            }
         } catch (error) {}
         this.currentUrl = null;
         this.isPrepared = false;
