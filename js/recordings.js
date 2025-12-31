@@ -888,7 +888,7 @@
          document.getElementById("popupPlayBtn").dataset.recordingId;
       if (recordingId) {
          window.location.href =
-            "player-web.html?id=" + recordingId + "&mediaType=video";
+            "player.html?id=" + recordingId + "&mediaType=video";
       }
    }
 

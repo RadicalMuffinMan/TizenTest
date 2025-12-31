@@ -71,6 +71,19 @@ var PlayerController = (function () {
    let currentSkipSegment = null;
    let skipOverlayVisible = false;
    let nextEpisodeData = null;
+   let previousEpisodeData = null;
+
+   // Trickplay variables (Jellyfin Web compatible)
+   let trickplayData = null;           // Trickplay info for current media source
+   let trickplayResolution = null;     // Selected trickplay resolution info
+   let trickplayVisible = false;
+
+   // Audio normalization variables (Jellyfin Web compatible)
+   let audioContext = null;
+   let gainNode = null;
+   let sourceNode = null;
+   let normalizationGain = 1.0;
+   let audioNormalizationEnabled = true; // Can be made into a user setting
 
    // Loading state machine
    const LoadingState = {
@@ -86,7 +99,7 @@ var PlayerController = (function () {
 
    // Timing Constants
    const PROGRESS_REPORT_INTERVAL_MS = 10000;
-   const CONTROLS_HIDE_DELAY_MS = 3000;
+   const CONTROLS_HIDE_DELAY_MS = 8000;
    const SKIP_INTERVAL_SECONDS = 10;
    const SEEK_DEBOUNCE_MS = 300;
    const BITRATE_UPDATE_INTERVAL_MS = 3000;
@@ -234,6 +247,11 @@ var PlayerController = (function () {
          errorDialogMessage: document.getElementById("errorDialogMessage"),
          errorDialogDetails: document.getElementById("errorDialogDetails"),
          errorDialogBtn: document.getElementById("errorDialogBtn"),
+         // Trickplay elements
+         trickplayBubble: document.getElementById("trickplayBubble"),
+         trickplayThumb: document.getElementById("trickplayThumb"),
+         trickplayChapterName: document.getElementById("trickplayChapterName"),
+         trickplayTime: document.getElementById("trickplayTime"),
       };
 
       videoPlayer = elements.videoPlayer;
@@ -329,20 +347,38 @@ var PlayerController = (function () {
          });
       }
 
-      // Show controls on any interaction
       document.addEventListener("mousemove", showControls);
       document.addEventListener("click", showControls);
 
-      // Progress bar interaction
       if (elements.progressBar) {
          elements.progressBar.setAttribute("tabindex", "0");
          elements.progressBar.addEventListener("click", handleProgressBarClick);
          elements.progressBar.addEventListener("focus", function () {
             isSeekbarFocused = true;
             seekPosition = videoPlayer.currentTime;
+            showTrickplayBubble();
          });
          elements.progressBar.addEventListener("blur", function () {
             isSeekbarFocused = false;
+            hideTrickplayBubble();
+         });
+
+         elements.progressBar.addEventListener("mousemove", function (evt) {
+            if (!videoPlayer.duration) return;
+            var rect = elements.progressBar.getBoundingClientRect();
+            var percent = ((evt.clientX - rect.left) / rect.width) * 100;
+            var positionTicks = (percent / 100) * videoPlayer.duration * TICKS_PER_SECOND;
+            updateTrickplayBubble(positionTicks, percent);
+         });
+
+         elements.progressBar.addEventListener("mouseenter", function () {
+            showTrickplayBubble();
+         });
+
+         elements.progressBar.addEventListener("mouseleave", function () {
+            if (!isSeekbarFocused) {
+               hideTrickplayBubble();
+            }
          });
       }
    }
@@ -439,15 +475,18 @@ var PlayerController = (function () {
             break;
 
          case KeyCodes.ENTER:
-            // Only toggle play/pause if no button is focused
-            if (
-               !document.activeElement ||
-               !focusableButtons.includes(document.activeElement)
-            ) {
-               evt.preventDefault();
+         case KeyCodes.OK:
+            evt.preventDefault();
+            // If a button is focused, trigger its click
+            if (document.activeElement && focusableButtons.includes(document.activeElement)) {
+               document.activeElement.click();
+            } else if (isSeekbarFocused) {
+               // If seekbar is focused, toggle play/pause
+               togglePlayPause();
+            } else {
+               // Otherwise toggle play/pause
                togglePlayPause();
             }
-            // If a button is focused, let it handle the click naturally
             break;
 
          case KeyCodes.PLAY:
@@ -623,7 +662,7 @@ var PlayerController = (function () {
 
       var endpoint = "/Users/" + auth.userId + "/Items/" + itemId;
       var params = {
-         Fields: "MediaSources,MediaStreams,Chapters",
+         Fields: "MediaSources,MediaStreams,Chapters,Trickplay",
       };
 
       JellyfinAPI.getItems(
@@ -646,7 +685,6 @@ var PlayerController = (function () {
                itemData.Type
             );
 
-            // Set media info. Prefering the logo over title text
             var hasLogo = false;
 
             // Try to get logo image (for series/movies with logo)
@@ -693,11 +731,10 @@ var PlayerController = (function () {
                elements.mediaSubtitle.textContent = subtitle;
             }
 
-            // Load media segments and next episode data for episodes
-            loadMediaSegments();
-            loadNextEpisode();
+            initializeTrickplay();
 
-            // Get playback info
+            loadMediaSegments();
+            loadAdjacentEpisodes();
             getPlaybackInfo();
          }
       );
@@ -707,7 +744,6 @@ var PlayerController = (function () {
       var playbackUrl =
          auth.serverAddress + "/Items/" + itemId + "/PlaybackInfo";
 
-      // Check if this is Live TV
       var isLiveTV = itemData && itemData.Type === "TvChannel";
 
       var requestData = {
@@ -719,7 +755,6 @@ var PlayerController = (function () {
 
       console.log("[Player] Requesting playback info from:", playbackUrl);
       
-      // Log to server for diagnostics
       if (typeof ServerLogger !== "undefined") {
          ServerLogger.logPlaybackInfo("Requesting playback info", {
             itemId: itemId,
@@ -759,7 +794,6 @@ var PlayerController = (function () {
                     })
                   : null;
 
-               // Log detailed media info for debugging
                console.log("[Player] Media Source Info:", {
                   container: mediaSource.Container,
                   videoCodec: videoStream ? videoStream.Codec : "none",
@@ -770,7 +804,6 @@ var PlayerController = (function () {
                   transcodingUrl: mediaSource.TranscodingUrl ? "Present" : "None"
                });
                
-               // Log to server for diagnostics
                if (typeof ServerLogger !== "undefined") {
                   ServerLogger.logPlaybackInfo("Playback info received", {
                      itemId: itemId,
@@ -795,7 +828,6 @@ var PlayerController = (function () {
                }
             }
 
-            // Start playback
             if (
                playbackInfo.MediaSources &&
                playbackInfo.MediaSources.length > 0
@@ -920,6 +952,9 @@ var PlayerController = (function () {
       currentMediaSource = mediaSource;
       isDolbyVisionMedia = false; // Reset flag for new playback session
 
+      // Reinitialize trickplay with the actual media source being played
+      initializeTrickplayForMediaSource(mediaSource.Id);
+
       // Populate audio/subtitle streams early so preferences can be applied
       audioStreams = mediaSource.MediaStreams
          ? mediaSource.MediaStreams.filter(function (s) {
@@ -932,7 +967,6 @@ var PlayerController = (function () {
            })
          : [];
 
-      // Initialize track indices to default tracks
       currentAudioIndex = -1;
       currentSubtitleIndex = -1;
       for (var i = 0; i < audioStreams.length; i++) {
@@ -974,7 +1008,6 @@ var PlayerController = (function () {
            })
          : null;
 
-      // Check if this is a Dolby Vision or HDR file
       var isDolbyVision =
          videoStream &&
          videoStream.Codec &&
@@ -997,6 +1030,7 @@ var PlayerController = (function () {
       // The server already evaluated our capabilities via the device profile we sent
       // This matches jellyfin-web behavior which trusts SupportsDirectPlay
       var canDirectPlay = mediaSource.SupportsDirectPlay;
+      var canDirectStream = mediaSource.SupportsDirectStream;
       var canTranscode = mediaSource.SupportsTranscoding;
 
       console.log("[Player] Server playback capabilities:", {
@@ -1008,32 +1042,50 @@ var PlayerController = (function () {
          supportsTranscoding: mediaSource.SupportsTranscoding
       });
 
+      // Determine playback method based on server response and user preference
+      // Priority: DirectPlay > DirectStream > Transcode (unless user forces specific mode)
       var shouldUseDirectPlay = false;
+      var shouldUseDirectStream = false;
+      
       if (forcePlayMode === "direct") {
+         // User explicitly wants direct play - try it if server says we can
          shouldUseDirectPlay = canDirectPlay;
+         if (!shouldUseDirectPlay && canDirectStream) {
+            shouldUseDirectStream = true;
+            console.log("[Player] Direct play not available, falling back to direct stream");
+         }
          console.log("[Player] Force direct play mode selected");
+      } else if (forcePlayMode === "directstream") {
+         // User explicitly wants direct stream (remux only)
+         shouldUseDirectPlay = false;
+         shouldUseDirectStream = canDirectStream;
+         console.log("[Player] Force direct stream mode selected");
       } else if (forcePlayMode === "transcode") {
          shouldUseDirectPlay = false;
+         shouldUseDirectStream = false;
          console.log("[Player] Force transcode mode selected");
       } else {
-         // Default: trust the server's decision (same as jellyfin-web)
-         // The server already validated our device profile capabilities
-         shouldUseDirectPlay = canDirectPlay;
-         
+         // Default: prefer DirectPlay, then DirectStream, then Transcode
+         // This matches jellyfin-web behavior which trusts server capabilities
          if (canDirectPlay) {
-            console.log("[Player] Server approved direct play - trusting server decision");
+            shouldUseDirectPlay = true;
+            console.log("[Player] Server approved direct play - using it");
+         } else if (canDirectStream) {
+            shouldUseDirectStream = true;
+            console.log("[Player] Server approved direct stream - using it (remux without transcode)");
+         } else {
+            console.log("[Player] Neither direct play nor direct stream available - will transcode");
          }
       }
       
-      // Log the playback decision
+      var playbackMethod = shouldUseDirectPlay ? "DirectPlay" : (shouldUseDirectStream ? "DirectStream" : (canTranscode ? "Transcode" : "None"));
       console.log("[Player] Playback decision:", {
-         method: shouldUseDirectPlay ? "DirectPlay" : (canTranscode ? "Transcode" : "None"),
+         method: playbackMethod,
          videoCodec: videoStream ? videoStream.Codec : "none",
          audioCodec: audioStream ? audioStream.Codec : "none",
          container: mediaSource.Container
       });
 
-      // Check if media source has a pre-configured transcoding URL (for Live TV)
       if (mediaSource.TranscodingUrl) {
          streamUrl = auth.serverAddress + mediaSource.TranscodingUrl;
 
@@ -1057,13 +1109,30 @@ var PlayerController = (function () {
          mimeType = "application/x-mpegURL";
          isTranscoding = true;
       } else if (shouldUseDirectPlay) {
+         // DirectPlay: Stream the file as-is, no server-side processing
          streamUrl = auth.serverAddress + "/Videos/" + itemId + "/stream";
          params.append("Static", "true");
          var container = mediaSource.Container || "mp4";
          mimeType = "video/" + container;
          useDirectPlay = true;
          isTranscoding = false;
+      } else if (shouldUseDirectStream) {
+         // DirectStream: Server remuxes (changes container) but doesn't transcode video/audio
+         // This is useful when the container is incompatible but codecs are fine
+         streamUrl = auth.serverAddress + "/Videos/" + itemId + "/stream";
+         params.append("Static", "false"); // Allow remuxing
+         // Use a compatible container for streaming
+         var targetContainer = mediaSource.Container || "mp4";
+         if (targetContainer === "mkv") {
+            // Remux MKV to MP4 for better browser compatibility
+            targetContainer = "mp4";
+         }
+         mimeType = "video/" + targetContainer;
+         useDirectPlay = true; // Treat as direct play for UI purposes
+         isTranscoding = false; // Not transcoding, just remuxing
+         console.log("[Player] Using DirectStream (remux to " + targetContainer + ")");
       } else if (canTranscode) {
+         // Transcoding: Full video/audio conversion to compatible format
          streamUrl = auth.serverAddress + "/Videos/" + itemId + "/master.m3u8";
          params.append("VideoCodec", "h264");
          params.append("AudioCodec", "aac");
@@ -1124,10 +1193,21 @@ var PlayerController = (function () {
 
       // Prepare the correct adapter based on playback method
       var creationOptions = {};
+      
+      // Containers supported by HTML5 video element
+      var html5SupportedContainers = ['mp4', 'm4v', 'webm', 'ogg', 'ogv', 'mov'];
+      var containerLower = mediaSource.Container ? mediaSource.Container.toLowerCase() : '';
+      var isHtml5Compatible = html5SupportedContainers.indexOf(containerLower) !== -1;
+      
       if (isDolbyVision) {
          creationOptions.preferTizen = true;
-      } else if (useDirectPlay) {
+      } else if (useDirectPlay && isHtml5Compatible) {
+         // Only use HTML5 for containers it supports (mp4, webm, etc.)
          creationOptions.preferHTML5 = true;
+      } else if (useDirectPlay && !isHtml5Compatible) {
+         // For MKV and other non-HTML5 containers, use Tizen AVPlay (native support)
+         console.log("[Player] Container " + containerLower + " not HTML5 compatible, using Tizen AVPlay");
+         creationOptions.preferTizen = true;
       } else if (isTranscoding) {
          creationOptions.preferHLS = true;
          console.log("[Player] Using HLS.js for transcoded stream");
@@ -1215,6 +1295,35 @@ var PlayerController = (function () {
    }
 
    /**
+    * Fall back to HLS transcoding when native adapter fails
+    * This is useful for simulators or when AVPlay can't decode the content
+    */
+   function fallbackToTranscoding() {
+      console.log("[Player] Falling back to HLS transcoding...");
+      
+      if (!currentMediaSource) {
+         console.error("[Player] No media source available for fallback");
+         return;
+      }
+      
+      // Stop current playback
+      if (playerAdapter) {
+         try {
+            playerAdapter.stop();
+         } catch (e) {
+            console.warn("[Player] Error stopping adapter:", e);
+         }
+      }
+      
+      // Force transcode mode and reload
+      forcePlayMode = "transcode";
+      
+      // Re-request playback info which will now use transcoding
+      console.log("[Player] Reloading with transcode mode...");
+      getPlaybackInfo();
+   }
+
+   /**
     * Monitor playback health and fallback to HLS if issues detected
     * Checks for: stuck playback, no video/audio tracks, stalled buffering
     * @param {Object} mediaSource - Current media source
@@ -1229,8 +1338,30 @@ var PlayerController = (function () {
       }
 
       var checkCount = 0;
-      var lastTime = videoPlayer.currentTime;
+      var lastTime = 0;
       var playbackEverStarted = false;
+      
+      // Helper to get current time from adapter or video element
+      function getCurrentTime() {
+         if (playerAdapter && typeof playerAdapter.getCurrentTime === 'function') {
+            return playerAdapter.getCurrentTime();
+         }
+         return videoPlayer.currentTime;
+      }
+      
+      // Helper to check if playback is paused
+      function isPaused() {
+         if (playerAdapter && typeof playerAdapter.isPaused === 'function') {
+            return playerAdapter.isPaused();
+         }
+         return videoPlayer.paused;
+      }
+      
+      // Helper to check if adapter is a Tizen adapter (doesn't use HTML5 video element)
+      function isNativeAdapter() {
+         return playerAdapter && playerAdapter.getName && 
+            (playerAdapter.getName() === 'TizenAVPlay' || playerAdapter.getName() === 'Shaka');
+      }
 
       function checkHealth() {
          // Stop checking after 5 attempts for direct play, or 8 attempts for transcoding (needs more time)
@@ -1246,18 +1377,20 @@ var PlayerController = (function () {
             playbackHealthCheckTimer = null;
             
             // Final check: if playback never started after all attempts
-            if (!playbackEverStarted && videoPlayer.currentTime === 0) {
+            var currentTime = getCurrentTime();
+            if (!playbackEverStarted && currentTime === 0) {
                console.log("[Player] Playback never started after " + checkCount + " health checks");
                console.error("[Player] Video element state:", {
-                  paused: videoPlayer.paused,
-                  currentTime: videoPlayer.currentTime,
+                  paused: isPaused(),
+                  currentTime: currentTime,
                   readyState: videoPlayer.readyState,
                   networkState: videoPlayer.networkState,
-                  error: videoPlayer.error ? videoPlayer.error.message : "none"
+                  error: videoPlayer.error ? videoPlayer.error.message : "none",
+                  adapter: playerAdapter ? playerAdapter.getName() : "none"
                });
                
-               // Try one more play() call as last resort
-               if (videoPlayer.paused) {
+               // Try one more play() call as last resort (only for HTML5)
+               if (!isNativeAdapter() && videoPlayer.paused) {
                   console.log("[Player] Attempting final play() call...");
                   videoPlayer.play().catch(function(err) {
                      console.error("[Player] Final play() attempt failed:", err);
@@ -1268,13 +1401,43 @@ var PlayerController = (function () {
          }
 
          checkCount++;
-         var currentTime = videoPlayer.currentTime;
+         var currentTime = getCurrentTime();
          
          // Track if playback ever progressed
          if (currentTime > 0) {
             playbackEverStarted = true;
          }
+         
+         // For native adapters (Tizen AVPlay, Shaka), use simpler checks
+         if (isNativeAdapter()) {
+            var paused = isPaused();
+            var isStuck = !paused && currentTime === lastTime && checkCount > 1;
+            
+            console.log("[Player] Health check #" + checkCount + " (native adapter):", {
+               currentTime: currentTime,
+               paused: paused,
+               adapter: playerAdapter.getName(),
+               stuck: isStuck
+            });
+            
+            // For native adapters, only fail if stuck for multiple checks
+            if (isStuck && checkCount >= 3) {
+               console.log("[Player] Native adapter playback appears stuck");
+               console.log("[Player] This may be a simulator without real AVPlay - falling back to HLS transcoding");
+               playbackHealthCheckTimer = null;
+               
+               // Fall back to HLS transcoding which works in simulators/browsers
+               fallbackToTranscoding();
+               return;
+            }
+            
+            // Playback is fine, schedule next check
+            lastTime = currentTime;
+            playbackHealthCheckTimer = setTimeout(checkHealth, 2000);
+            return;
+         }
 
+         // HTML5 video element checks (original logic)
          // Check 1: Is playback stuck? (time not advancing when it should)
          var isStuck = !videoPlayer.paused && currentTime === lastTime;
          
@@ -1600,9 +1763,6 @@ var PlayerController = (function () {
    /**
     * Start periodic progress reporting to server
     */
-   /**
-    * Start periodic progress reporting to server
-    */
    function startProgressReporting() {
       if (progressInterval) clearInterval(progressInterval);
 
@@ -1611,9 +1771,6 @@ var PlayerController = (function () {
       }, PROGRESS_REPORT_INTERVAL_MS);
    }
 
-   /**
-    * Stop periodic progress reporting
-    */
    /**
     * Stop periodic progress reporting
     */
@@ -1631,15 +1788,13 @@ var PlayerController = (function () {
    /**
     * Toggle between play and pause states
     */
-   // ============================================================================
-   // PLAYBACK CONTROLS
-   // ============================================================================
-
-   /**
-    * Toggle between play and pause states
-    */
    function togglePlayPause() {
-      if (videoPlayer.paused) {
+      // Use adapter's isPaused if available, otherwise fallback to video element
+      var isPaused = playerAdapter && typeof playerAdapter.isPaused === 'function' 
+         ? playerAdapter.isPaused() 
+         : videoPlayer.paused;
+      
+      if (isPaused) {
          play();
       } else {
          pause();
@@ -1649,11 +1804,13 @@ var PlayerController = (function () {
    /**
     * Play video and update UI
     */
-   /**
-    * Play video and update UI
-    */
    function play() {
-      videoPlayer.play();
+      // Use adapter if available
+      if (playerAdapter && typeof playerAdapter.play === 'function') {
+         playerAdapter.play();
+      } else {
+         videoPlayer.play();
+      }
       if (elements.playPauseBtn) {
          const icon = elements.playPauseBtn.querySelector(".btn-icon");
          if (icon) icon.src = "assets/pause.png";
@@ -1664,11 +1821,13 @@ var PlayerController = (function () {
    /**
     * Pause video and update UI
     */
-   /**
-    * Pause video and update UI
-    */
    function pause() {
-      videoPlayer.pause();
+      // Use adapter if available
+      if (playerAdapter && typeof playerAdapter.pause === 'function') {
+         playerAdapter.pause();
+      } else {
+         videoPlayer.pause();
+      }
       if (elements.playPauseBtn) {
          const icon = elements.playPauseBtn.querySelector(".btn-icon");
          if (icon) icon.src = "assets/play.png";
@@ -1679,27 +1838,25 @@ var PlayerController = (function () {
    /**
     * Skip backward by configured interval
     */
-   /**
-    * Skip backward by configured interval
-    */
    function rewind() {
-      seekTo(Math.max(0, videoPlayer.currentTime - SKIP_INTERVAL_SECONDS));
+      var currentTime = playerAdapter && typeof playerAdapter.getCurrentTime === 'function'
+         ? playerAdapter.getCurrentTime()
+         : videoPlayer.currentTime;
+      seekTo(Math.max(0, currentTime - SKIP_INTERVAL_SECONDS));
       showControls();
    }
 
    /**
     * Skip forward by configured interval
     */
-   /**
-    * Skip forward by configured interval
-    */
    function forward() {
-      seekTo(
-         Math.min(
-            videoPlayer.duration,
-            videoPlayer.currentTime + SKIP_INTERVAL_SECONDS
-         )
-      );
+      var currentTime = playerAdapter && typeof playerAdapter.getCurrentTime === 'function'
+         ? playerAdapter.getCurrentTime()
+         : videoPlayer.currentTime;
+      var duration = playerAdapter && typeof playerAdapter.getDuration === 'function'
+         ? playerAdapter.getDuration()
+         : videoPlayer.duration;
+      seekTo(Math.min(duration, currentTime + SKIP_INTERVAL_SECONDS));
       showControls();
    }
 
@@ -1707,17 +1864,30 @@ var PlayerController = (function () {
     * Seek forward by interval on seekbar
     */
    function seekForward() {
-      if (videoPlayer.duration) {
+      var duration = playerAdapter && typeof playerAdapter.getDuration === 'function'
+         ? playerAdapter.getDuration()
+         : videoPlayer.duration;
+      if (duration) {
          // Use pending seek position if a seek is in progress, otherwise use current video time
+         var currentTime = playerAdapter && typeof playerAdapter.getCurrentTime === 'function'
+            ? playerAdapter.getCurrentTime()
+            : videoPlayer.currentTime;
          var currentPosition =
             pendingSeekPosition !== null
                ? pendingSeekPosition
-               : videoPlayer.currentTime;
+               : currentTime;
          seekPosition = Math.min(
             currentPosition + SKIP_INTERVAL_SECONDS,
-            videoPlayer.duration
+            duration
          );
          seekTo(seekPosition);
+         
+         // Update trickplay bubble during keyboard seeking
+         if (isSeekbarFocused && duration) {
+            var percent = (seekPosition / videoPlayer.duration) * 100;
+            updateTrickplayBubble(seekPosition * TICKS_PER_SECOND, percent);
+         }
+         
          showControls();
       }
    }
@@ -1733,6 +1903,13 @@ var PlayerController = (function () {
             : videoPlayer.currentTime;
       seekPosition = Math.max(currentPosition - SKIP_INTERVAL_SECONDS, 0);
       seekTo(seekPosition);
+      
+      // Update trickplay bubble during keyboard seeking
+      if (isSeekbarFocused && videoPlayer.duration) {
+         var percent = (seekPosition / videoPlayer.duration) * 100;
+         updateTrickplayBubble(seekPosition * TICKS_PER_SECOND, percent);
+      }
+      
       showControls();
    }
 
@@ -1741,9 +1918,12 @@ var PlayerController = (function () {
     * @param {number} position - Target position in seconds
     */
    function seekTo(position) {
-      if (!videoPlayer.duration || isNaN(position)) return;
+      var duration = playerAdapter && typeof playerAdapter.getDuration === 'function'
+         ? playerAdapter.getDuration()
+         : videoPlayer.duration;
+      if (!duration || isNaN(position)) return;
 
-      position = Math.max(0, Math.min(position, videoPlayer.duration));
+      position = Math.max(0, Math.min(position, duration));
       pendingSeekPosition = position;
       isSeekingActive = true; // Prevent onTimeUpdate from overriding seek preview
 
@@ -1789,9 +1969,12 @@ var PlayerController = (function () {
     * @param {number} position - Preview position in seconds
     */
    function updateSeekPreview(position) {
-      if (!videoPlayer.duration) return;
+      var duration = playerAdapter && typeof playerAdapter.getDuration === 'function'
+         ? playerAdapter.getDuration()
+         : videoPlayer.duration;
+      if (!duration) return;
 
-      var progress = (position / videoPlayer.duration) * 100;
+      var progress = (position / duration) * 100;
 
       if (elements.seekIndicator) {
          elements.seekIndicator.style.left = progress + "%";
@@ -1800,11 +1983,11 @@ var PlayerController = (function () {
 
       if (elements.timeDisplay) {
          elements.timeDisplay.textContent =
-            formatTime(position) + " / " + formatTime(videoPlayer.duration);
+            formatTime(position) + " / " + formatTime(duration);
       }
 
       if (elements.endTime) {
-         var remainingSeconds = videoPlayer.duration - position;
+         var remainingSeconds = duration - position;
          var endDate = new Date(Date.now() + remainingSeconds * 1000);
          var hours = endDate.getHours();
          var minutes = endDate.getMinutes();
@@ -1883,9 +2066,6 @@ var PlayerController = (function () {
    /**
     * Hide player controls
     */
-   /**
-    * Hide player controls
-    */
    function hideControls() {
       if (elements.playerControls) {
          elements.playerControls.classList.remove("visible");
@@ -1912,24 +2092,18 @@ var PlayerController = (function () {
    // ============================================================================
 
    /**
-    * Handle video play event
+    * Handle video play event - currently unused but kept for future use
     */
-   // ============================================================================
-   // VIDEO EVENT HANDLERS
-   // ============================================================================
+   function onPlay() {
+      // Intentionally empty - events handled elsewhere
+   }
 
    /**
-    * Handle video play event
+    * Handle video pause event - currently unused but kept for future use
     */
-   function onPlay() {}
-
-   /**
-    * Handle video pause event
-    */
-   /**
-    * Handle video pause event
-    */
-   function onPause() {}
+   function onPause() {
+      // Intentionally empty - events handled elsewhere
+   }
 
    /**
     * Handle video ready to play event
@@ -1960,9 +2134,6 @@ var PlayerController = (function () {
    /**
     * Handle video metadata loaded event
     */
-   /**
-    * Handle video metadata loaded event
-    */
    function onLoadedMetadata() {
       console.log("[Player] Video metadata loaded");
       clearLoadingTimeout();
@@ -1986,16 +2157,12 @@ var PlayerController = (function () {
    }
 
    /**
-    * Handle video buffering event
+    * Handle video buffering event - currently unused but kept for future use
     */
-   /**
-    * Handle video buffering event
-    */
-   function onWaiting() {}
+   function onWaiting() {
+      // Intentionally empty - could show buffering indicator in future
+   }
 
-   /**
-    * Handle video playing event (playback started)
-    */
    /**
     * Handle video playing event (playback started)
     */
@@ -2016,6 +2183,9 @@ var PlayerController = (function () {
          reportPlaybackStart();
          startProgressReporting();
          detectCurrentAudioTrack();
+         
+         // Initialize audio normalization after playback starts
+         initializeAudioNormalization();
       }
 
       // Apply playback speed
@@ -2038,9 +2208,6 @@ var PlayerController = (function () {
       }
    }
 
-   /**
-    * Handle video time update event
-    */
    /**
     * Handle video time update event
     */
@@ -2146,7 +2313,7 @@ var PlayerController = (function () {
             errorCode: errorCode,
             errorMessage: errorMessage,
             itemId: itemId,
-            itemName: currentItem ? currentItem.Name : "Unknown",
+            itemName: itemData ? itemData.Name : "Unknown",
             mediaSource: currentMediaSource
                ? {
                     id: currentMediaSource.Id,
@@ -2158,7 +2325,6 @@ var PlayerController = (function () {
                     supportsTranscoding: currentMediaSource.SupportsTranscoding,
                  }
                : null,
-            streamUrl: streamUrl ? streamUrl.substring(0, 200) : null,
             currentTime: videoPlayer.currentTime,
             duration: videoPlayer.duration,
             readyState: videoPlayer.readyState,
@@ -2182,13 +2348,16 @@ var PlayerController = (function () {
     * Play previous item in queue/playlist
     */
    function playPreviousItem() {
-      // Stop current playback
+      // If we have previous episode data, play it
+      if (previousEpisodeData) {
+         playPreviousEpisode();
+         return;
+      }
+
+      // Otherwise, stop current playback and navigate back
       reportPlaybackStop();
       stopProgressReporting();
       stopBitrateMonitoring();
-
-      // Navigate back and let the previous page handle loading the previous item
-      // In a future enhancement, this could be integrated with a proper queue system
       window.history.back();
    }
 
@@ -2196,13 +2365,16 @@ var PlayerController = (function () {
     * Play next item in queue/playlist
     */
    function playNextItem() {
-      // Stop current playback
+      // If we have next episode data, play it without page reload
+      if (nextEpisodeData) {
+         playNextEpisode();
+         return;
+      }
+
+      // Otherwise, stop current playback and navigate back
       reportPlaybackStop();
       stopProgressReporting();
       stopBitrateMonitoring();
-
-      // Navigate back and let the previous page handle loading the next item
-      // In a future enhancement, this could be integrated with a proper queue system
       window.history.back();
    }
 
@@ -2248,6 +2420,14 @@ var PlayerController = (function () {
             playerAdapter = null;
          }
 
+         // Cleanup audio normalization
+         cleanupAudioNormalization();
+
+         // Cleanup trickplay
+         trickplayData = null;
+         trickplayResolution = null;
+         hideTrickplayBubble();
+
          setLoadingState(LoadingState.IDLE);
          window.history.back();
       }
@@ -2273,9 +2453,6 @@ var PlayerController = (function () {
       }
    }
 
-   /**
-    * Hide loading indicator
-    */
    /**
     * Hide loading indicator
     */
@@ -2458,9 +2635,6 @@ var PlayerController = (function () {
    /**
     * Show subtitle track selector modal
     */
-   /**
-    * Show subtitle track selector modal
-    */
    function showSubtitleTrackSelector() {
       if (
          !itemData ||
@@ -2491,10 +2665,6 @@ var PlayerController = (function () {
       }
    }
 
-   /**
-    * Select audio track by index
-    * @param {number} index - Track index
-    */
    /**
     * Select audio track by index
     * @param {number} index - Track index
@@ -2561,10 +2731,6 @@ var PlayerController = (function () {
       closeModal();
    }
 
-   /**
-    * Select subtitle track by index
-    * @param {number} index - Track index (-1 to disable)
-    */
    /**
     * Select subtitle track by index
     * @param {number} index - Track index (-1 to disable)
@@ -3405,10 +3571,13 @@ var PlayerController = (function () {
 
       var modes = [];
       if (currentMediaSource.SupportsDirectPlay) {
-         modes.push({ label: "Direct Play", value: "direct" });
+         modes.push({ label: "Direct Play", value: "direct", description: "No server processing" });
+      }
+      if (currentMediaSource.SupportsDirectStream) {
+         modes.push({ label: "Direct Stream", value: "directstream", description: "Remux only, no transcode" });
       }
       if (currentMediaSource.SupportsTranscoding) {
-         modes.push({ label: "Transcode", value: "transcode" });
+         modes.push({ label: "Transcode", value: "transcode", description: "Full conversion" });
       }
 
       if (modes.length === 0) {
@@ -3418,15 +3587,27 @@ var PlayerController = (function () {
       var listHtml = "";
       modes.forEach(function (mode) {
          var isSelected = forcePlayMode === mode.value;
+         // Check if this mode is currently being used (when forcePlayMode is null)
+         var isCurrentDefault = !forcePlayMode && (
+            (mode.value === "direct" && currentMediaSource.SupportsDirectPlay) ||
+            (mode.value === "directstream" && !currentMediaSource.SupportsDirectPlay && currentMediaSource.SupportsDirectStream)
+         );
          listHtml +=
             '<div class="track-item' +
             (isSelected ? " selected" : "") +
+            (isCurrentDefault ? " current-default" : "") +
             '" tabindex="0" data-mode="' +
             mode.value +
             '">';
-         listHtml += '<span class="track-name">' + mode.label + "</span>";
+         listHtml += '<span class="track-name">' + mode.label;
+         if (mode.description) {
+            listHtml += '<span class="track-description"> (' + mode.description + ')</span>';
+         }
+         listHtml += "</span>";
          if (isSelected) {
             listHtml += '<span class="selected-indicator">✓</span>';
+         } else if (isCurrentDefault) {
+            listHtml += '<span class="selected-indicator default-indicator">(auto)</span>';
          }
          listHtml += "</div>";
       });
@@ -3552,9 +3733,6 @@ var PlayerController = (function () {
    /**
     * Close all modals
     */
-   /**
-    * Close all modals
-    */
    function closeModal() {
       if (elements.audioModal) {
          elements.audioModal.style.display = "none";
@@ -3656,38 +3834,39 @@ var PlayerController = (function () {
    }
 
    /**
-    * Load next episode data for "Play Next Episode" button
+    * Load adjacent episodes (previous and next) for navigation buttons
     */
-   function loadNextEpisode() {
-      console.log("[loadNextEpisode] START");
-      console.log("[loadNextEpisode] auth:", !!auth, "itemData:", !!itemData);
+   function loadAdjacentEpisodes() {
+      console.log("[loadAdjacentEpisodes] START");
+      console.log("[loadAdjacentEpisodes] auth:", !!auth, "itemData:", !!itemData);
 
       if (!auth || !itemData) {
-         console.log("[loadNextEpisode] Missing auth or itemData, returning");
+         console.log("[loadAdjacentEpisodes] Missing auth or itemData, returning");
          return;
       }
 
       console.log(
-         "[loadNextEpisode] itemData.Type:",
+         "[loadAdjacentEpisodes] itemData.Type:",
          itemData.Type,
          "itemData.SeriesId:",
          itemData.SeriesId
       );
 
-      // Only load next episode for TV episodes
+      // Only load adjacent episodes for TV episodes
       if (itemData.Type !== "Episode" || !itemData.SeriesId) {
          console.log(
-            "[loadNextEpisode] Not an episode or no SeriesId, returning"
+            "[loadAdjacentEpisodes] Not an episode or no SeriesId, returning"
          );
          return;
       }
 
       var url =
          auth.serverAddress + "/Shows/" + itemData.SeriesId + "/Episodes";
+      
+      // Fetch all episodes to find previous and next
       var params = {
          UserId: auth.userId,
-         StartItemId: itemId,
-         Limit: 2,
+         SeasonId: itemData.SeasonId,
          Fields: "Overview",
       };
 
@@ -3700,7 +3879,7 @@ var PlayerController = (function () {
          .join("&");
 
       console.log(
-         "[loadNextEpisode] Making request to:",
+         "[loadAdjacentEpisodes] Making request to:",
          url + "?" + queryString
       );
 
@@ -3712,33 +3891,64 @@ var PlayerController = (function () {
          success: function (response) {
             try {
                var data = response;
-               console.log("[loadNextEpisode] Response:", data);
-               if (data && data.Items && data.Items.length > 1) {
-                  nextEpisodeData = data.Items[1]; // Second item is the next episode
-                  console.log(
-                     "[loadNextEpisode] Next episode loaded:",
-                     nextEpisodeData.Name,
-                     nextEpisodeData.Id
-                  );
+               console.log("[loadAdjacentEpisodes] Response - Total episodes:", data && data.Items ? data.Items.length : 0);
+               
+               if (data && data.Items && data.Items.length > 0) {
+                  // Find current episode index
+                  var currentIndex = -1;
+                  for (var i = 0; i < data.Items.length; i++) {
+                     if (data.Items[i].Id === itemId) {
+                        currentIndex = i;
+                        break;
+                     }
+                  }
+                  
+                  console.log("[loadAdjacentEpisodes] Current episode index:", currentIndex);
+                  
+                  // Set previous episode if exists
+                  if (currentIndex > 0) {
+                     previousEpisodeData = data.Items[currentIndex - 1];
+                     console.log(
+                        "[loadAdjacentEpisodes] Previous episode loaded:",
+                        previousEpisodeData.Name,
+                        previousEpisodeData.Id
+                     );
+                  } else {
+                     previousEpisodeData = null;
+                     console.log("[loadAdjacentEpisodes] No previous episode (first in season)");
+                  }
+                  
+                  // Set next episode if exists
+                  if (currentIndex >= 0 && currentIndex < data.Items.length - 1) {
+                     nextEpisodeData = data.Items[currentIndex + 1];
+                     console.log(
+                        "[loadAdjacentEpisodes] Next episode loaded:",
+                        nextEpisodeData.Name,
+                        nextEpisodeData.Id
+                     );
+                  } else {
+                     nextEpisodeData = null;
+                     console.log("[loadAdjacentEpisodes] No next episode (last in season)");
+                  }
                } else {
+                  previousEpisodeData = null;
                   nextEpisodeData = null;
-                  console.log(
-                     "[loadNextEpisode] No next episode available - Items length:",
-                     data && data.Items ? data.Items.length : "N/A"
-                  );
+                  console.log("[loadAdjacentEpisodes] No episodes found");
                }
             } catch (e) {
-               console.log("[loadNextEpisode] Error parsing next episode:", e);
+               console.log("[loadAdjacentEpisodes] Error parsing episodes:", e);
+               previousEpisodeData = null;
                nextEpisodeData = null;
             }
          },
          error: function (status, response) {
             console.log(
-               "[loadNextEpisode] Request failed - status:",
+               "[loadAdjacentEpisodes] Request failed - status:",
                status,
                "response:",
                response
             );
+            previousEpisodeData = null;
             nextEpisodeData = null;
          },
       });
@@ -3870,8 +4080,48 @@ var PlayerController = (function () {
    }
 
    /**
-    * Play next episode without page reload
+    * Play the previous episode in the series without reloading the page
     */
+   function playPreviousEpisode() {
+      console.log("[playPreviousEpisode] START");
+      if (!previousEpisodeData) {
+         console.log("[playPreviousEpisode] No previous episode data available");
+         return;
+      }
+
+      console.log(
+         "[playPreviousEpisode] Previous episode:",
+         previousEpisodeData.Name,
+         previousEpisodeData.Id
+      );
+
+      // Save previous episode ID before clearing
+      var prevEpisodeId = previousEpisodeData.Id;
+
+      // Stop current playback reporting
+      reportPlaybackStop();
+      stopProgressReporting();
+
+      // Clear current state
+      currentSkipSegment = null;
+      skipOverlayVisible = false;
+      hideSkipOverlay();
+      mediaSegments = [];
+      previousEpisodeData = null;
+      nextEpisodeData = null;
+
+      // Update browser history so BACK goes to correct details page
+      if (window && window.history && window.location) {
+         var newUrl = "player.html?id=" + prevEpisodeId;
+         window.history.replaceState({}, "", newUrl);
+      }
+      
+      // Load and play the previous episode
+      itemId = prevEpisodeId;
+      loadItemAndPlay();
+      console.log("[playPreviousEpisode] END");
+   }
+
    /**
     * Play the next episode in the series without reloading the page
     */
@@ -3905,11 +4155,12 @@ var PlayerController = (function () {
       skipOverlayVisible = false;
       hideSkipOverlay();
       mediaSegments = [];
+      previousEpisodeData = null;
       nextEpisodeData = null;
 
       // Update browser history so BACK goes to correct details page
       if (window && window.history && window.location) {
-         var newUrl = "player-web.html?id=" + nextEpisodeId;
+         var newUrl = "player.html?id=" + nextEpisodeId;
          window.history.replaceState({}, "", newUrl);
       }
       // Load and play the next episode (keep playerAdapter alive)
@@ -3920,9 +4171,6 @@ var PlayerController = (function () {
       console.log("[playNextEpisode] END");
    }
 
-   /**
-    * Execute skip action (seek past segment or play next episode)
-    */
    /**
     * Execute skip action (seek past segment or play next episode)
     */
@@ -3964,6 +4212,298 @@ var PlayerController = (function () {
       videoPlayer.currentTime = skipToTime;
       hideSkipOverlay();
       console.log("[executeSkip] END");
+   }
+
+   // ============================================================================
+   // TRICKPLAY THUMBNAILS (Jellyfin Web Compatible)
+   // ============================================================================
+
+   /**
+    * Initialize trickplay data from item data
+    * Following jellyfin-web implementation exactly
+    */
+   function initializeTrickplay() {
+      trickplayData = null;
+      trickplayResolution = null;
+
+      if (!itemData || !itemData.Trickplay) {
+         console.log("[Trickplay] No trickplay data available for this item");
+         return;
+      }
+
+      // Get the primary media source ID
+      var mediaSourceId = null;
+      if (itemData.MediaSources && itemData.MediaSources.length > 0) {
+         mediaSourceId = itemData.MediaSources[0].Id;
+      }
+
+      if (mediaSourceId) {
+         initializeTrickplayForMediaSource(mediaSourceId);
+      }
+   }
+
+   /**
+    * Initialize trickplay for a specific media source ID
+    * @param {string} mediaSourceId - The media source ID to use
+    */
+   function initializeTrickplayForMediaSource(mediaSourceId) {
+      trickplayData = null;
+      trickplayResolution = null;
+
+      if (!itemData || !itemData.Trickplay) {
+         console.log("[Trickplay] No trickplay data available for this item");
+         return;
+      }
+
+      if (!mediaSourceId) {
+         console.log("[Trickplay] No media source ID provided");
+         return;
+      }
+
+      var trickplayResolutions = itemData.Trickplay[mediaSourceId];
+      if (!trickplayResolutions) {
+         console.log("[Trickplay] No trickplay resolutions for media source:", mediaSourceId);
+         return;
+      }
+
+      // Prefer highest resolution <= 20% of screen width (following jellyfin-web)
+      var maxWidth = window.screen.width * window.devicePixelRatio * 0.2;
+      var bestWidth = null;
+
+      for (var widthKey in trickplayResolutions) {
+         if (trickplayResolutions.hasOwnProperty(widthKey)) {
+            var info = trickplayResolutions[widthKey];
+            var width = info.Width;
+
+            if (!bestWidth || 
+               (width < bestWidth && bestWidth > maxWidth) ||
+               (width > bestWidth && width <= maxWidth)) {
+               bestWidth = width;
+            }
+         }
+      }
+
+      if (bestWidth && trickplayResolutions[bestWidth]) {
+         trickplayResolution = trickplayResolutions[bestWidth];
+         trickplayData = {
+            mediaSourceId: mediaSourceId,
+            resolution: trickplayResolution
+         };
+
+         console.log("[Trickplay] Initialized with resolution:", bestWidth, "Info:", trickplayResolution);
+
+         // Setup trickplay bubble dimensions
+         if (elements.trickplayThumb) {
+            elements.trickplayThumb.style.width = trickplayResolution.Width + "px";
+            elements.trickplayThumb.style.height = trickplayResolution.Height + "px";
+         }
+      }
+   }
+
+   /**
+    * Update trickplay bubble HTML - following jellyfin-web implementation exactly
+    * @param {number} positionTicks - Position in ticks
+    * @param {number} percent - Progress bar percentage
+    */
+   function updateTrickplayBubble(positionTicks, percent) {
+      if (!elements.trickplayBubble) return;
+
+      var bubble = elements.trickplayBubble;
+      var progressBarRect = elements.progressBar.getBoundingClientRect();
+
+      // Calculate bubble position
+      var bubblePos = progressBarRect.width * percent / 100;
+      bubble.style.left = bubblePos + "px";
+
+      // If no trickplay data, just show time
+      if (!trickplayResolution || !trickplayData) {
+         bubble.classList.add("no-trickplay");
+         if (elements.trickplayTime) {
+            elements.trickplayTime.textContent = formatTime(positionTicks / TICKS_PER_SECOND);
+         }
+         if (elements.trickplayChapterName) {
+            elements.trickplayChapterName.textContent = "";
+         }
+         bubble.style.display = "block";
+         return;
+      }
+
+      bubble.classList.remove("no-trickplay");
+
+      // Find current chapter name
+      var chapterName = "";
+      if (itemData && itemData.Chapters) {
+         for (var i = 0; i < itemData.Chapters.length; i++) {
+            var chapter = itemData.Chapters[i];
+            if (positionTicks >= chapter.StartPositionTicks) {
+               chapterName = chapter.Name || "";
+            } else {
+               break;
+            }
+         }
+      }
+
+      // Calculate trickplay tile position (following jellyfin-web exactly)
+      var currentTimeMs = positionTicks / 10000; // Ticks to milliseconds
+      var currentTile = Math.floor(currentTimeMs / trickplayResolution.Interval);
+      var tileSize = trickplayResolution.TileWidth * trickplayResolution.TileHeight;
+      var tileOffset = currentTile % tileSize;
+      var imageIndex = Math.floor(currentTile / tileSize);
+
+      var tileOffsetX = tileOffset % trickplayResolution.TileWidth;
+      var tileOffsetY = Math.floor(tileOffset / trickplayResolution.TileWidth);
+      var offsetX = -(tileOffsetX * trickplayResolution.Width);
+      var offsetY = -(tileOffsetY * trickplayResolution.Height);
+
+      // Build trickplay image URL (following jellyfin-web API format)
+      var imgSrc = auth.serverAddress + "/Videos/" + itemId + "/Trickplay/" + 
+                   trickplayResolution.Width + "/" + imageIndex + ".jpg?MediaSourceId=" + 
+                   trickplayData.mediaSourceId;
+
+      // Update thumbnail
+      if (elements.trickplayThumb) {
+         elements.trickplayThumb.style.backgroundImage = "url('" + imgSrc + "')";
+         elements.trickplayThumb.style.backgroundPositionX = offsetX + "px";
+         elements.trickplayThumb.style.backgroundPositionY = offsetY + "px";
+         elements.trickplayThumb.style.width = trickplayResolution.Width + "px";
+         elements.trickplayThumb.style.height = trickplayResolution.Height + "px";
+      }
+
+      // Update text
+      if (elements.trickplayTime) {
+         elements.trickplayTime.textContent = formatTime(positionTicks / TICKS_PER_SECOND);
+      }
+      if (elements.trickplayChapterName) {
+         elements.trickplayChapterName.textContent = chapterName;
+      }
+
+      bubble.style.display = "block";
+   }
+
+   /**
+    * Show trickplay bubble
+    */
+   function showTrickplayBubble() {
+      if (elements.trickplayBubble) {
+         trickplayVisible = true;
+      }
+   }
+
+   /**
+    * Hide trickplay bubble
+    */
+   function hideTrickplayBubble() {
+      if (elements.trickplayBubble) {
+         elements.trickplayBubble.style.display = "none";
+         trickplayVisible = false;
+      }
+   }
+
+   // ============================================================================
+   // AUDIO NORMALIZATION (Jellyfin Web Compatible)
+   // ============================================================================
+
+   /**
+    * Initialize audio normalization using Web Audio API
+    * Following jellyfin-web implementation
+    */
+   function initializeAudioNormalization() {
+      if (!audioNormalizationEnabled) {
+         console.log("[AudioNorm] Audio normalization disabled");
+         return;
+      }
+
+      // Check if item has normalization gain data
+      var trackGain = itemData && itemData.NormalizationGain;
+      var albumGain = null;
+
+      // Get album gain from media source if available
+      if (playbackInfo && playbackInfo.MediaSources && playbackInfo.MediaSources.length > 0) {
+         albumGain = playbackInfo.MediaSources[0].albumNormalizationGain || null;
+      }
+
+      // Use track gain, falling back to album gain (TrackGain mode - default in jellyfin-web)
+      var gainValue = trackGain || albumGain;
+
+      if (!gainValue) {
+         console.log("[AudioNorm] No normalization gain data available");
+         cleanupAudioNormalization();
+         return;
+      }
+
+      try {
+         // Create or reuse AudioContext
+         var AudioContextClass = window.AudioContext || window.webkitAudioContext;
+         if (!AudioContextClass) {
+            console.log("[AudioNorm] Web Audio API not supported");
+            return;
+         }
+
+         if (!audioContext) {
+            audioContext = new AudioContextClass();
+         }
+
+         // Resume audio context if suspended (required by browsers after user interaction)
+         if (audioContext.state === "suspended") {
+            audioContext.resume();
+         }
+
+         // Create gain node if not exists
+         if (!gainNode) {
+            gainNode = audioContext.createGain();
+            gainNode.connect(audioContext.destination);
+         }
+
+         // Create media element source if not exists
+         if (!sourceNode) {
+            sourceNode = audioContext.createMediaElementSource(videoPlayer);
+            sourceNode.connect(gainNode);
+         }
+
+         // Convert dB to linear gain (following jellyfin-web: Math.pow(10, normalizationGain / 20))
+         normalizationGain = Math.pow(10, gainValue / 20);
+         gainNode.gain.value = normalizationGain;
+
+         console.log("[AudioNorm] Applied normalization gain:", gainValue, "dB -> linear:", normalizationGain);
+
+      } catch (error) {
+         console.error("[AudioNorm] Failed to initialize audio normalization:", error);
+         cleanupAudioNormalization();
+      }
+   }
+
+   /**
+    * Cleanup audio normalization resources
+    */
+   function cleanupAudioNormalization() {
+      if (gainNode) {
+         gainNode.gain.value = 1.0;
+      }
+      normalizationGain = 1.0;
+      // Note: We don't destroy the audioContext/sourceNode as they cannot be 
+      // recreated once destroyed for the same video element
+   }
+
+   /**
+    * Get current audio normalization setting
+    * @returns {string} 'TrackGain', 'AlbumGain', or 'Off'
+    */
+   function getAudioNormalizationMode() {
+      // Can be expanded to read from user settings storage
+      return audioNormalizationEnabled ? "TrackGain" : "Off";
+   }
+
+   /**
+    * Set audio normalization mode
+    * @param {string} mode - 'TrackGain', 'AlbumGain', or 'Off'
+    */
+   function setAudioNormalizationMode(mode) {
+      audioNormalizationEnabled = mode !== "Off";
+      if (audioNormalizationEnabled && itemData) {
+         initializeAudioNormalization();
+      } else {
+         cleanupAudioNormalization();
+      }
    }
 
    return {

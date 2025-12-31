@@ -116,6 +116,14 @@ class VideoPlayerAdapter {
     }
 
     /**
+     * Stop playback
+     */
+    stop() {
+        this.videoElement.pause();
+        this.videoElement.src = '';
+    }
+
+    /**
      * Register event handler
      * @param {string} event - Event name
      * @param {Function} handler - Event handler function
@@ -723,12 +731,17 @@ class TizenVideoAdapter extends VideoPlayerAdapter {
                 },
                 oncurrentplaytime: (currentTime) => {
                     // Update video element time for compatibility
+                    const timeInSeconds = currentTime / 1000;
                     if (this.videoElement) {
                         Object.defineProperty(this.videoElement, 'currentTime', {
-                            get: () => currentTime / 1000,
+                            get: () => timeInSeconds,
+                            set: (val) => { this.seek(val); },
                             configurable: true
                         });
+                        // Trigger timeupdate event on video element for UI updates
+                        this.videoElement.dispatchEvent(new Event('timeupdate'));
                     }
+                    this.emit('timeupdate', { currentTime: timeInSeconds });
                 },
                 onerror: (errorType) => {
                     console.error('[TizenAdapter] Error:', errorType);
@@ -772,6 +785,16 @@ class TizenVideoAdapter extends VideoPlayerAdapter {
                         this.isPrepared = true;
                         this.duration = webapis.avplay.getDuration() / 1000;
                         console.log('[TizenAdapter] Prepared, duration:', this.duration);
+                        
+                        // Update video element duration for UI compatibility
+                        if (this.videoElement) {
+                            Object.defineProperty(this.videoElement, 'duration', {
+                                get: () => this.duration,
+                                configurable: true
+                            });
+                            // Trigger loadedmetadata for UI initialization
+                            this.videoElement.dispatchEvent(new Event('loadedmetadata'));
+                        }
                         resolve();
                     },
                     (error) => {
@@ -824,6 +847,23 @@ class TizenVideoAdapter extends VideoPlayerAdapter {
             return webapis.avplay.getDuration() / 1000;
         } catch (error) {
             return this.duration;
+        }
+    }
+
+    isPaused() {
+        try {
+            const state = webapis.avplay.getState();
+            return state === 'PAUSED' || state === 'IDLE' || state === 'READY' || state === 'NONE';
+        } catch (error) {
+            return true;
+        }
+    }
+
+    stop() {
+        try {
+            webapis.avplay.stop();
+        } catch (error) {
+            console.error('[TizenAdapter] Stop error:', error);
         }
     }
 
