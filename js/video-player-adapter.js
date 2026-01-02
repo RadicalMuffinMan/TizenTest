@@ -11,7 +11,7 @@
 /**
  * Media Error Types
  */
-const MediaError = {
+var MediaError = {
     NETWORK_ERROR: 'NetworkError',
     MEDIA_DECODE_ERROR: 'MediaDecodeError',
     MEDIA_NOT_SUPPORTED: 'MediaNotSupported',
@@ -23,8 +23,8 @@ const MediaError = {
 /**
  * HLS.js error recovery timing
  */
-let recoverDecodingErrorDate;
-let recoverSwapAudioCodecDate;
+var recoverDecodingErrorDate;
+var recoverSwapAudioCodecDate;
 
 /**
  * Base class for video player adapters
@@ -716,12 +716,12 @@ class TizenVideoAdapter extends VideoPlayerAdapter {
             webapis.avplay.open(url);
             
             // Get actual screen resolution from Tizen TV API
-            let screenWidth = window.innerWidth;
-            let screenHeight = window.innerHeight;
+            var screenWidth = window.innerWidth;
+            var screenHeight = window.innerHeight;
             
             try {
                 if (typeof webapis !== 'undefined' && webapis.productinfo) {
-                    const resolution = webapis.productinfo.getResolution();
+                    var resolution = webapis.productinfo.getResolution();
                     if (resolution) {
                         screenWidth = resolution.width || screenWidth;
                         screenHeight = resolution.height || screenHeight;
@@ -744,7 +744,7 @@ class TizenVideoAdapter extends VideoPlayerAdapter {
             }
 
             // Configure listener
-            const listener = {
+            var listener = {
                 onbufferingstart: () => {
                     console.log('[TizenAdapter] Buffering started');
                     this.emit('buffering', true);
@@ -776,12 +776,12 @@ class TizenVideoAdapter extends VideoPlayerAdapter {
                 },
                 onerror: (errorType) => {
                     // Get detailed error info for debugging
-                    let state = 'UNKNOWN';
+                    var state = 'UNKNOWN';
                     try {
                         state = webapis.avplay.getState();
                     } catch (e) {}
                     
-                    const errorDetails = {
+                    var errorDetails = {
                         type: errorType,
                         state: state,
                         url: this.currentUrl ? this.currentUrl.substring(0, 100) : 'none'
@@ -836,7 +836,7 @@ class TizenVideoAdapter extends VideoPlayerAdapter {
                         this.duration = webapis.avplay.getDuration() / 1000;
                         
                         // Log AVPlay state for debugging
-                        let state = 'UNKNOWN';
+                        var state = 'UNKNOWN';
                         try {
                             state = webapis.avplay.getState();
                         } catch (e) {}

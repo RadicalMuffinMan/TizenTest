@@ -747,12 +747,28 @@ var PlayerController = (function () {
       var isLiveTV = itemData && itemData.Type === "TvChannel";
 
       var deviceProfile = getDeviceProfile();
+      
+      // Check MKV support with ES5 loop for Tizen 4 compatibility
+      var mkvSupported = false;
+      var mkvProfile = null;
+      if (deviceProfile && deviceProfile.DirectPlayProfiles) {
+         for (var i = 0; i < deviceProfile.DirectPlayProfiles.length; i++) {
+            var profile = deviceProfile.DirectPlayProfiles[i];
+            if (profile.Container && profile.Container.indexOf('mkv') !== -1) {
+               mkvSupported = true;
+               if (!mkvProfile) {
+                  mkvProfile = profile;
+               }
+            }
+         }
+      }
+      
       console.log('[Player] Device Profile Summary:', {
          hasDirectPlayProfiles: deviceProfile && deviceProfile.DirectPlayProfiles && deviceProfile.DirectPlayProfiles.length > 0,
-         mkvSupported: deviceProfile && deviceProfile.DirectPlayProfiles ? deviceProfile.DirectPlayProfiles.some(p => p.Container && p.Container.includes('mkv')) : false,
+         mkvSupported: mkvSupported,
          firstProfile: deviceProfile && deviceProfile.DirectPlayProfiles && deviceProfile.DirectPlayProfiles[0]
       });
-      console.log('[Player] MKV Profile:', deviceProfile && deviceProfile.DirectPlayProfiles ? deviceProfile.DirectPlayProfiles.find(p => p.Container && p.Container.includes('mkv')) : null);
+      console.log('[Player] MKV Profile:', mkvProfile);
       console.log('[Player] Full device profile DirectPlayProfiles:', deviceProfile ? deviceProfile.DirectPlayProfiles : null);
 
       var requestData = {
@@ -785,6 +801,21 @@ var PlayerController = (function () {
             playbackInfo = response;
             
             console.log("[Player] Playback info received successfully");
+            // Build analysis object with ES5 loops for Tizen 4 compatibility
+            var analysisVideoStream = null;
+            var analysisAudioStreams = [];
+            if (response.MediaSources && response.MediaSources[0] && response.MediaSources[0].MediaStreams) {
+               var streams = response.MediaSources[0].MediaStreams;
+               for (var i = 0; i < streams.length; i++) {
+                  if (streams[i].Type === 'Video' && !analysisVideoStream) {
+                     analysisVideoStream = streams[i];
+                  }
+                  if (streams[i].Type === 'Audio') {
+                     analysisAudioStreams.push({codec: streams[i].Codec, channels: streams[i].Channels});
+                  }
+               }
+            }
+            
             console.log("[Player] Server response analysis:", {
                mediaSourcesCount: response.MediaSources ? response.MediaSources.length : 0,
                firstSource: response.MediaSources && response.MediaSources[0] ? {
@@ -795,8 +826,8 @@ var PlayerController = (function () {
                   transcodingUrl: response.MediaSources[0].TranscodingUrl ? 'present' : 'absent',
                   path: response.MediaSources[0].Path ? 'present' : 'absent',
                   mediaStreamsCount: response.MediaSources[0].MediaStreams ? response.MediaSources[0].MediaStreams.length : 0,
-                  videoStream: response.MediaSources[0].MediaStreams ? response.MediaSources[0].MediaStreams.find(s => s.Type === 'Video') : null,
-                  audioStreams: response.MediaSources[0].MediaStreams ? response.MediaSources[0].MediaStreams.filter(s => s.Type === 'Audio').map(a => ({codec: a.Codec, channels: a.Channels})) : []
+                  videoStream: analysisVideoStream,
+                  audioStreams: analysisAudioStreams
                } : null,
                errorCode: response.ErrorCode || 'none'
             });

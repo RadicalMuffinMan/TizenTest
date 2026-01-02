@@ -62,21 +62,7 @@ function copyFilesES5() {
 
    return gulp
       .src("js/**/*.js", { base: "." })
-      .pipe(
-         babel({
-            presets: [
-               [
-                  "@babel/preset-env",
-                  {
-                     targets: {
-                        browsers: ["ie >= 11", "safari >= 9"],
-                     },
-                     modules: false,
-                  },
-               ],
-            ],
-         })
-      )
+      .pipe(babel())
       .pipe(gulp.dest("build/"));
 }
 
