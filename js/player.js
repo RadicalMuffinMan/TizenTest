@@ -1240,8 +1240,10 @@ var PlayerController = (function () {
          console.log("[Player] Container " + containerLower + " not HTML5 compatible, using Tizen AVPlay");
          creationOptions.preferTizen = true;
       } else if (isTranscoding) {
-         creationOptions.preferHLS = true;
-         console.log("[Player] Using HLS.js for transcoded stream");
+         // Use Tizen native HLS player for better compatibility
+         // HLS.js can have codec parsing issues on Tizen
+         creationOptions.preferTizen = true;
+         console.log("[Player] Using Tizen native HLS player for transcoded stream");
       }
       await ensurePlayerAdapter(creationOptions);
 
