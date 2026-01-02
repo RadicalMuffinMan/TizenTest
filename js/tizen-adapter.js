@@ -406,7 +406,22 @@
             { Container: 'wav', Type: 'Audio', AudioCodec: 'wav', Context: 'Static', Protocol: 'http', MaxAudioChannels: '6' }
          ],
          
-         ContainerProfiles: tizenVersion < 6.5 ? [
+         ContainerProfiles: [
+            // MKV with HEVC causes direct play issues on Tizen (audio only, no video)
+            // Force transcoding by not supporting it
+            {
+               Type: 'Video',
+               Container: 'mkv',
+               Conditions: [
+                  {
+                     Condition: 'NotEquals',
+                     Property: 'VideoCodec',
+                     Value: 'hevc',
+                     IsRequired: false
+                  }
+               ]
+            }
+         ].concat(tizenVersion < 6.5 ? [
             // Tizen <6.5 doesn't support more than 32 streams in a single file
             {
                Type: 'Video',
@@ -417,7 +432,7 @@
                   IsRequired: false
                }]
             }
-         ] : [],
+         ] : []),
          
          CodecProfiles: [
             // H264 codec profile
