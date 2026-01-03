@@ -280,28 +280,28 @@
          console.log('[Tizen] Could not detect Tizen version:', e);
       }
 
-      console.log('[Tizen] Generating device profile for Tizen', tizenVersion);
-
       // Build audio codec list based on Tizen version
       // DTS is NOT supported on Tizen 4.0+ (Samsung 2018+ TVs)
+      // EAC3 is NOT supported in MKV containers (only in TS/MP4)
       var videoAudioCodecs = 'aac,mp3,ac3,eac3,opus,vorbis,pcm_s16le,pcm_s24le,aac_latm';
-      var mkvAudioCodecs = videoAudioCodecs;
+      var mkvAudioCodecs = 'aac,mp3,ac3,opus,vorbis,pcm_s16le,pcm_s24le,aac_latm';
+      
       if (tizenVersion < 4) {
          // Only older Tizen TVs support DTS
+         videoAudioCodecs += ',dca,dts,truehd';
          mkvAudioCodecs += ',dca,dts,truehd';
       }
       // Note: FLAC excluded from video causes sync issues on Tizen
       
       // Build video codec list based on Tizen version
       var mp4VideoCodecs = 'h264,hevc';
-      var mkvVideoCodecs = 'h264'; // HEVC excluded - causes playback issues in MKV containers
       if (tizenVersion >= 5.5) {
          // AV1 only supported on Tizen 5.5+ (2020 TVs)
          mp4VideoCodecs += ',av1';
-         mkvVideoCodecs += ',av1';
       }
       mp4VideoCodecs += ',vp9';
-      mkvVideoCodecs += ',vp9';
+      // MKV uses exact same codec support as MP4
+      var mkvVideoCodecs = mp4VideoCodecs;
 
       return {
          MaxStreamingBitrate: 120000000,
@@ -540,7 +540,6 @@
             }
             
             // Otherwise generate device profile directly
-            console.log('[Tizen] Generating device profile directly');
             return generateDeviceProfile();
          },
 

@@ -255,6 +255,13 @@ var PlayerController = (function () {
       };
 
       videoPlayer = elements.videoPlayer;
+      
+      // Set initial volume to maximum and ensure not muted
+      if (videoPlayer) {
+         videoPlayer.volume = 1.0;
+         videoPlayer.muted = false;
+         console.log('[Player] Set initial video volume to:', videoPlayer.volume, 'muted:', videoPlayer.muted);
+      }
 
       // Create focusable buttons array for navigation
       focusableButtons = [
@@ -762,14 +769,6 @@ var PlayerController = (function () {
             }
          }
       }
-      
-      console.log('[Player] Device Profile Summary:', {
-         hasDirectPlayProfiles: deviceProfile && deviceProfile.DirectPlayProfiles && deviceProfile.DirectPlayProfiles.length > 0,
-         mkvSupported: mkvSupported,
-         firstProfile: deviceProfile && deviceProfile.DirectPlayProfiles && deviceProfile.DirectPlayProfiles[0]
-      });
-      console.log('[Player] MKV Profile:', mkvProfile);
-      console.log('[Player] Full device profile DirectPlayProfiles:', deviceProfile ? deviceProfile.DirectPlayProfiles : null);
 
       var requestData = {
          UserId: auth.userId,
@@ -777,8 +776,6 @@ var PlayerController = (function () {
          DeviceProfile: deviceProfile,
          AutoOpenLiveStream: isLiveTV,
       };
-
-      console.log("[Player] Requesting playback info from:", playbackUrl);
       
       if (typeof ServerLogger !== "undefined") {
          ServerLogger.logPlaybackInfo("Requesting playback info", {
@@ -799,39 +796,6 @@ var PlayerController = (function () {
          data: requestData,
          success: function (response) {
             playbackInfo = response;
-            
-            console.log("[Player] Playback info received successfully");
-            // Build analysis object with ES5 loops for Tizen 4 compatibility
-            var analysisVideoStream = null;
-            var analysisAudioStreams = [];
-            if (response.MediaSources && response.MediaSources[0] && response.MediaSources[0].MediaStreams) {
-               var streams = response.MediaSources[0].MediaStreams;
-               for (var i = 0; i < streams.length; i++) {
-                  if (streams[i].Type === 'Video' && !analysisVideoStream) {
-                     analysisVideoStream = streams[i];
-                  }
-                  if (streams[i].Type === 'Audio') {
-                     analysisAudioStreams.push({codec: streams[i].Codec, channels: streams[i].Channels});
-                  }
-               }
-            }
-            
-            console.log("[Player] Server response analysis:", {
-               mediaSourcesCount: response.MediaSources ? response.MediaSources.length : 0,
-               firstSource: response.MediaSources && response.MediaSources[0] ? {
-                  container: response.MediaSources[0].Container,
-                  supportsDirectPlay: response.MediaSources[0].SupportsDirectPlay,
-                  supportsDirectStream: response.MediaSources[0].SupportsDirectStream,
-                  supportsTranscoding: response.MediaSources[0].SupportsTranscoding,
-                  transcodingUrl: response.MediaSources[0].TranscodingUrl ? 'present' : 'absent',
-                  path: response.MediaSources[0].Path ? 'present' : 'absent',
-                  mediaStreamsCount: response.MediaSources[0].MediaStreams ? response.MediaSources[0].MediaStreams.length : 0,
-                  videoStream: analysisVideoStream,
-                  audioStreams: analysisAudioStreams
-               } : null,
-               errorCode: response.ErrorCode || 'none'
-            });
-            console.log("[Player] Full first media source:", response.MediaSources && response.MediaSources[0]);
 
             // Detect if this is Dolby Vision content and set flag for adapter selection
             isDolbyVisionMedia = false;
@@ -851,16 +815,6 @@ var PlayerController = (function () {
                     })
                   : null;
 
-               console.log("[Player] Media Source Info:", {
-                  container: mediaSource.Container,
-                  videoCodec: videoStream ? videoStream.Codec : "none",
-                  audioCodec: audioStream ? audioStream.Codec : "none",
-                  supportsDirectPlay: mediaSource.SupportsDirectPlay,
-                  supportsDirectStream: mediaSource.SupportsDirectStream,
-                  supportsTranscoding: mediaSource.SupportsTranscoding,
-                  transcodingUrl: mediaSource.TranscodingUrl ? "Present" : "None"
-               });
-               
                if (typeof ServerLogger !== "undefined") {
                   ServerLogger.logPlaybackInfo("Playback info received", {
                      itemId: itemId,
@@ -889,7 +843,51 @@ var PlayerController = (function () {
                playbackInfo.MediaSources &&
                playbackInfo.MediaSources.length > 0
             ) {
-               startPlayback(playbackInfo.MediaSources[0]).catch(onError);
+               var mediaSourceToPlay = playbackInfo.MediaSources[0];
+               
+               // Check if server approved DirectPlay for MKV with EAC3
+               // This is a problem because Tizen HTML5 video doesn't expose audioTracks for MKV DirectPlay
+               // So we need to force transcoding or find a compatible audio track
+               if (mediaSourceToPlay.Container === 'mkv' && mediaSourceToPlay.SupportsDirectPlay) {
+                  var defaultAudioIdx = mediaSourceToPlay.DefaultAudioStreamIndex;
+                  var audioStreams = mediaSourceToPlay.MediaStreams ? mediaSourceToPlay.MediaStreams.filter(function(s) {
+                     return s.Type === 'Audio';
+                  }) : [];
+                  
+                  var defaultAudio = audioStreams.find(function(s) { return s.Index === defaultAudioIdx; });
+                  
+                  if (defaultAudio && (defaultAudio.Codec || '').toLowerCase() === 'eac3') {
+                     // MKV with EAC3 DirectPlay workaround: Tizen can't play EAC3 in MKV via DirectPlay
+                     // Find alternative audio track or force transcoding
+                     var compatibleCodecs = ['aac', 'ac3', 'mp3', 'opus', 'vorbis', 'pcm_s16le', 'pcm_s24le', 'flac'];
+                     var alternativeAudio = null;
+                     
+                     for (var i = 0; i < audioStreams.length; i++) {
+                        var codec = (audioStreams[i].Codec || '').toLowerCase();
+                        if (codec === 'eac3') {
+                           continue;
+                        }
+                        for (var j = 0; j < compatibleCodecs.length; j++) {
+                           if (codec === compatibleCodecs[j]) {
+                              alternativeAudio = audioStreams[i];
+                              break;
+                           }
+                        }
+                        if (alternativeAudio) break;
+                     }
+                     
+                     if (alternativeAudio) {
+                        mediaSourceToPlay.DefaultAudioStreamIndex = alternativeAudio.Index;
+                        currentAudioIndex = alternativeAudio.Index;
+                     } else {
+                        mediaSourceToPlay.SupportsDirectPlay = false;
+                        mediaSourceToPlay.SupportsDirectStream = false;
+                        currentAudioIndex = defaultAudioIdx;
+                     }
+                  }
+               }
+               
+               startPlayback(mediaSourceToPlay).catch(onError);
             } else {
                showErrorDialog(
                   "No Media Sources",
@@ -953,24 +951,9 @@ var PlayerController = (function () {
     * jellyfin-web integration and custom player scenarios
     */
    function getDeviceProfile() {
-      console.log('[Player] getDeviceProfile called');
-      console.log('[Player] NativeShell available:', typeof NativeShell !== 'undefined');
-      
       if (typeof NativeShell !== 'undefined' && NativeShell.AppHost && NativeShell.AppHost.getDeviceProfile) {
-         console.log('[Player] Calling NativeShell.AppHost.getDeviceProfile()');
-         // Call without profileBuilder since this is custom player
-         var profile = NativeShell.AppHost.getDeviceProfile();
-         console.log('[Player] Device profile generated:', {
-            hasProfile: !!profile,
-            directPlayProfiles: profile ? profile.DirectPlayProfiles.length : 0,
-            codecProfiles: profile ? profile.CodecProfiles.length : 0
-         });
-         return profile;
+         return NativeShell.AppHost.getDeviceProfile();
       }
-      
-      console.error('[Player] NativeShell.AppHost.getDeviceProfile not available!');
-      console.error('[Player] NativeShell:', typeof NativeShell);
-      console.error('[Player] NativeShell.AppHost:', typeof NativeShell !== 'undefined' ? typeof NativeShell.AppHost : 'N/A');
       return null;
    }
 
@@ -1120,10 +1103,19 @@ var PlayerController = (function () {
          streamUrl = auth.serverAddress + "/Videos/" + itemId + "/stream";
          params.append("Static", "true");
          var container = mediaSource.Container || "mp4";
-         mimeType = "video/" + container;
+         // Use proper MIME types
+         if (container.toLowerCase() === 'mkv') {
+            mimeType = "video/x-matroska";
+         } else if (container.toLowerCase() === 'webm') {
+            mimeType = "video/webm";
+         } else if (container.toLowerCase() === 'ogg' || container.toLowerCase() === 'ogv') {
+            mimeType = "video/ogg";
+         } else {
+            mimeType = "video/" + container;
+         }
          useDirectPlay = true;
          isTranscoding = false;
-         console.log("[Player] Using DirectPlay for " + container + " container");
+         console.log("[Player] Using DirectPlay for " + container + " container with MIME type: " + mimeType);
       } else if (shouldUseDirectStream) {
          // DirectStream: Server remuxes (changes container) but doesn't transcode video/audio
          // This is useful when the container is incompatible but codecs are fine
@@ -1225,8 +1217,9 @@ var PlayerController = (function () {
       // Prepare the correct adapter based on playback method
       var creationOptions = {};
       
-      // Containers supported by HTML5 video element
-      var html5SupportedContainers = ['mp4', 'm4v', 'webm', 'ogg', 'ogv', 'mov'];
+      // Containers supported by HTML5 video element on Tizen
+      // Tizen's HTML5 <video> element supports MKV natively
+      var html5SupportedContainers = ['mp4', 'm4v', 'webm', 'ogg', 'ogv', 'mov', 'mkv'];
       var containerLower = mediaSource.Container ? mediaSource.Container.toLowerCase() : '';
       var isHtml5Compatible = html5SupportedContainers.indexOf(containerLower) !== -1;
       
@@ -1240,10 +1233,9 @@ var PlayerController = (function () {
          console.log("[Player] Container " + containerLower + " not HTML5 compatible, using Tizen AVPlay");
          creationOptions.preferTizen = true;
       } else if (isTranscoding) {
-         // Use Tizen native HLS player for better compatibility
-         // HLS.js can have codec parsing issues on Tizen
-         creationOptions.preferTizen = true;
-         console.log("[Player] Using Tizen native HLS player for transcoded stream");
+         // Try HTML5 with native HLS support first for better compatibility
+         creationOptions.preferHTML5 = true;
+         console.log("[Player] Using HTML5 native HLS for transcoded stream");
       }
       await ensurePlayerAdapter(creationOptions);
 
@@ -2278,8 +2270,43 @@ var PlayerController = (function () {
          paused: videoPlayer.paused,
          currentTime: videoPlayer.currentTime,
          readyState: videoPlayer.readyState,
-         duration: videoPlayer.duration
+         duration: videoPlayer.duration,
+         volume: videoPlayer.volume,
+         muted: videoPlayer.muted
       });
+      
+      if (videoPlayer.audioTracks && videoPlayer.audioTracks.length > 0) {
+         console.log("[Player] Audio tracks available:", videoPlayer.audioTracks.length);
+         console.log("[Player] Selected audio index from media source:", currentAudioIndex);
+         
+         // Ensure at least one audio track is enabled 
+         var hasEnabledTrack = false;
+         for (var i = 0; i < videoPlayer.audioTracks.length; i++) {
+            var track = videoPlayer.audioTracks[i];
+            if (track.enabled) {
+               hasEnabledTrack = true;
+            }
+            console.log("[Player] Audio track " + i + ":", {
+               id: track.id,
+               kind: track.kind,
+               label: track.label,
+               language: track.language,
+               enabled: track.enabled
+            });
+         }
+         
+         // If no track is enabled, enable the user-selected or default track
+         if (!hasEnabledTrack && videoPlayer.audioTracks.length > 0) {
+            // Use currentAudioIndex if valid, otherwise fall back to first track
+            var trackToEnable = currentAudioIndex >= 0 && currentAudioIndex < videoPlayer.audioTracks.length 
+               ? currentAudioIndex 
+               : 0;
+            console.log("[Player] No audio track enabled, enabling track index:", trackToEnable);
+            videoPlayer.audioTracks[trackToEnable].enabled = true;
+         }
+      } else {
+         console.log("[Player] No audio tracks exposed via DOM API (embedded audio stream)");
+      }
       
       clearLoadingTimeout();
       setLoadingState(LoadingState.READY);

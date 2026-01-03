@@ -1158,31 +1158,27 @@ class HTML5VideoAdapter extends VideoPlayerAdapter {
                 return this.loadWithHlsJs(url, options);
             }
 
-            // Clear existing sources
-            this.videoElement.innerHTML = '';
-            
             // Set cross-origin if needed
             const crossOrigin = getCrossOriginValue(options.mediaSource);
             if (crossOrigin) {
                 this.videoElement.crossOrigin = crossOrigin;
             }
             
-            // Create source element
-            const source = document.createElement('source');
-            source.src = url;
+            // Set src directly on video element, NOT via source child
+            // This is critical for Tizen compatibility
+            this.videoElement.src = url;
             
             if (options.mimeType) {
-                source.type = options.mimeType;
-            }
-            
-            this.videoElement.appendChild(source);
-
-            // Set start position if provided
-            if (options.startPosition) {
-                this.videoElement.currentTime = options.startPosition;
+                this.videoElement.setAttribute('type', options.mimeType);
             }
 
             this.emit('loaded', { url });
+
+            this.videoElement.load();
+            
+            if (options.startPosition && options.startPosition > 0) {
+                this.videoElement.currentTime = options.startPosition;
+            }
 
             // Wait for video to be ready with timeout
             return new Promise((resolve, reject) => {

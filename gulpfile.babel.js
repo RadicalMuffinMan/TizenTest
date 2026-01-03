@@ -134,8 +134,8 @@ async function packageWgt() {
    await createZip(versionedWgtName);
 }
 
-const build = gulp.series(clean, updateVersion, copyFiles);
-const buildPackage = gulp.series(clean, updateVersion, copyFiles, packageWgt);
+const build = gulp.series(clean, updateVersion, copyFilesES5);
+const buildPackage = gulp.series(clean, updateVersion, copyFilesES5, packageWgt);
 const buildES5 = gulp.series(clean, updateVersion, copyFilesES5);
 const buildPackageES5 = gulp.series(
    clean,
