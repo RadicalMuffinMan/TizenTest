@@ -28,6 +28,7 @@ var PlayerController = (function () {
    let modalFocusableItems = [];
    let currentModalFocusIndex = 0;
    let activeModal = null;
+   let modalOpenerButton = null; // Track which button opened the modal for focus restoration
    let isSeekbarFocused = false;
    let seekPosition = 0;
    let loadingTimeout = null;
@@ -3094,6 +3095,7 @@ var PlayerController = (function () {
          selectAudioTrack
       );
 
+      modalOpenerButton = elements.audioBtn; // Store the button that opened this modal
       activeModal = "audio";
       elements.audioModal.style.display = "flex";
       currentModalFocusIndex = Math.max(0, currentAudioIndex);
@@ -3127,6 +3129,7 @@ var PlayerController = (function () {
          selectSubtitleTrack
       );
 
+      modalOpenerButton = elements.subtitleBtn; // Store the button that opened this modal
       activeModal = "subtitle";
       elements.subtitleModal.style.display = "flex";
       currentModalFocusIndex = currentSubtitleIndex + 1; // +1 because of "None" option
@@ -3714,6 +3717,7 @@ var PlayerController = (function () {
 
       elements.videoInfoContent.innerHTML = infoHtml;
       elements.videoInfoModal.style.display = "flex";
+      modalOpenerButton = elements.videoInfoBtn; // Store the button that opened this modal
       activeModal = "videoInfo";
 
       // Make the content scrollable with remote control
@@ -3735,6 +3739,7 @@ var PlayerController = (function () {
          elements.chaptersContent.innerHTML =
             '<div class="no-chapters"><p>No chapters available for this video</p></div>';
          elements.chaptersModal.style.display = "flex";
+         modalOpenerButton = elements.chaptersBtn; // Store the button that opened this modal
          activeModal = "chapters";
          return;
       }
@@ -3803,6 +3808,7 @@ var PlayerController = (function () {
 
       elements.chaptersContent.innerHTML = chaptersHtml;
       elements.chaptersModal.style.display = "flex";
+      modalOpenerButton = elements.chaptersBtn; // Store the button that opened this modal
       activeModal = "chapters";
 
       // Set up focusable items for keyboard navigation
@@ -3889,6 +3895,7 @@ var PlayerController = (function () {
 
       elements.speedList.innerHTML = listHtml;
       elements.speedModal.style.display = "flex";
+      modalOpenerButton = elements.speedBtn; // Store the button that opened this modal
       activeModal = "speed";
 
       modalFocusableItems = Array.from(
@@ -3999,6 +4006,7 @@ var PlayerController = (function () {
 
       elements.qualityList.innerHTML = listHtml;
       elements.qualityModal.style.display = "flex";
+      modalOpenerButton = elements.qualityBtn; // Store the button that opened this modal
       activeModal = "quality";
 
       modalFocusableItems = Array.from(
@@ -4112,6 +4120,7 @@ var PlayerController = (function () {
 
       elements.playModeList.innerHTML = listHtml;
       elements.playModeModal.style.display = "flex";
+      modalOpenerButton = elements.playModeBtn; // Store the button that opened this modal
       activeModal = "playmode";
 
       modalFocusableItems = Array.from(
@@ -4256,14 +4265,16 @@ var PlayerController = (function () {
       activeModal = null;
       modalFocusableItems = [];
 
+      // Restore focus to the button that opened the modal
       if (
-         elements.playModeBtn &&
-         focusableButtons.indexOf(elements.playModeBtn) !== -1
+         modalOpenerButton &&
+         focusableButtons.indexOf(modalOpenerButton) !== -1
       ) {
          setTimeout(function () {
-            elements.playModeBtn.focus();
+            modalOpenerButton.focus();
          }, 100);
       }
+      modalOpenerButton = null; // Clear the reference
    }
 
    /**
