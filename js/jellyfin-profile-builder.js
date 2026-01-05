@@ -187,11 +187,13 @@
       }
       if (browser.ps4) return false;
       
+      // HEVC Levels: L120=4.0 (1080p), L150=5.0 (4K@30), L153=5.1 (4K@60)
+      // Test for 4K capability (Level 5.1) to properly support 4K SDR content
       return !!videoTestElement.canPlayType
-         && (videoTestElement.canPlayType('video/mp4; codecs="hvc1.1.L120"').replace(/no/, '')
-         || videoTestElement.canPlayType('video/mp4; codecs="hev1.1.L120"').replace(/no/, '')
-         || videoTestElement.canPlayType('video/mp4; codecs="hvc1.1.0.L120"').replace(/no/, '')
-         || videoTestElement.canPlayType('video/mp4; codecs="hev1.1.0.L120"').replace(/no/, ''));
+         && (videoTestElement.canPlayType('video/mp4; codecs="hvc1.1.L153"').replace(/no/, '')
+         || videoTestElement.canPlayType('video/mp4; codecs="hev1.1.L153"').replace(/no/, '')
+         || videoTestElement.canPlayType('video/mp4; codecs="hvc1.1.0.L153"').replace(/no/, '')
+         || videoTestElement.canPlayType('video/mp4; codecs="hev1.1.0.L153"').replace(/no/, ''));
    }
 
    function canPlayAv1(videoTestElement) {

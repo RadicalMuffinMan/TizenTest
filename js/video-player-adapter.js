@@ -221,9 +221,10 @@ class ShakaPlayerAdapter extends VideoPlayerAdapter {
             
             // Detect codec support using MediaSource API
             // Test multiple Dolby Vision profiles and variants
+            // HEVC Levels: L120=4.0 (1080p), L150=5.0 (4K@30), L153=5.1 (4K@60)
             this.codecSupport = {
                 h264: this.checkCodecSupport('video/mp4; codecs="avc1.64001f"'),
-                hevc: this.checkCodecSupport('video/mp4; codecs="hev1.1.6.L93.B0"'),
+                hevc: this.checkCodecSupport('video/mp4; codecs="hev1.1.6.L153.B0"'),
                 hevcMain10: this.checkCodecSupport('video/mp4; codecs="hev1.2.4.L153.B0"'),
                 dolbyVisionP5: this.checkCodecSupport('video/mp4; codecs="dvhe.05.07"'),
                 dolbyVisionP7: this.checkCodecSupport('video/mp4; codecs="dvhe.07.06"'),
