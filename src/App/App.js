@@ -109,18 +109,24 @@ const AppContent = (props) => {
 
 	useEffect(() => {
 		const handleKeyDown = (e) => {
+			// Allow backspace in input fields
 			if (e.keyCode === 8 && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) {
 				return;
 			}
-			// Handle back button - Tizen (10009), webOS (461), Browser Escape (27), Backspace (8)
+			// Handle back button (10009 = Tizen BACK, 27 = Escape, 8 = Backspace)
 			if (isBackKey(e)) {
+				// Always prevent default to stop TV from showing home menu
+				e.preventDefault();
+
+				// Don't navigate back from browse or login - already at root
 				if (panelIndex === PANELS.BROWSE || panelIndex === PANELS.LOGIN) {
 					return;
 				}
+				// Player and Settings handle their own back button - let event propagate to them
 				if (panelIndex === PANELS.PLAYER || panelIndex === PANELS.SETTINGS) {
 					return;
 				}
-				e.preventDefault();
+				// For all other panels, stop propagation and handle navigation
 				e.stopPropagation();
 				handleBack();
 			}

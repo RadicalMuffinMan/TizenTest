@@ -8,6 +8,7 @@ import {useSettings} from '../../context/SettingsContext';
 import MediaRow from '../../components/MediaRow';
 import LoadingSpinner from '../../components/LoadingSpinner';
 import {formatDuration, getImageUrl, getBackdropId, getLogoUrl} from '../../utils/helpers';
+import {isBackKey} from '../../utils/tizenKeys';
 
 import css from './Details.module.less';
 
@@ -248,7 +249,7 @@ const Details = ({itemId, onPlay, onSelectItem, onSelectPerson, onBack}) => {
 	}, []);
 
 	const handleKeyDown = useCallback((ev) => {
-		if (ev.keyCode === 461 || ev.keyCode === 27) {
+		if (isBackKey(ev)) {
 			ev.preventDefault();
 			onBack?.();
 		}

@@ -3,6 +3,7 @@ import Spottable from '@enact/spotlight/Spottable';
 import {useAuth} from '../../context/AuthContext';
 import LoadingSpinner from '../../components/LoadingSpinner';
 import {formatDuration} from '../../utils/helpers';
+import {isBackKey} from '../../utils/tizenKeys';
 
 import css from './Recordings.module.less';
 
@@ -91,7 +92,7 @@ const Recordings = ({onPlayRecording, onBack}) => {
 	useEffect(() => {
 		const handleKeyDown = (e) => {
 			if (selectedItem) {
-				if (e.keyCode === 461 || e.keyCode === 27 || e.keyCode === 8) {
+				if (isBackKey(e)) {
 					e.preventDefault();
 					e.stopPropagation();
 					setSelectedItem(null);
@@ -100,7 +101,7 @@ const Recordings = ({onPlayRecording, onBack}) => {
 				return;
 			}
 
-			if (e.keyCode === 461 || e.keyCode === 27 || e.keyCode === 8) {
+			if (isBackKey(e)) {
 				e.preventDefault();
 				onBack?.();
 			}

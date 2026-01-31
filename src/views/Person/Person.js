@@ -5,6 +5,7 @@ import Image from '@enact/sandstone/Image';
 import {useAuth} from '../../context/AuthContext';
 import MediaCard from '../../components/MediaCard';
 import LoadingSpinner from '../../components/LoadingSpinner';
+import {isBackKey} from '../../utils/tizenKeys';
 
 import css from './Person.module.less';
 
@@ -16,7 +17,7 @@ const Person = ({personId, onSelectItem, onBack}) => {
 
 	useEffect(() => {
 		const handleKeyDown = (e) => {
-			if (e.keyCode === 461 || e.keyCode === 27) {
+			if (isBackKey(e)) {
 				onBack?.();
 			}
 		};

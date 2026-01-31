@@ -7,6 +7,7 @@ import Button from '@enact/sandstone/Button';
 import {useAuth} from '../../context/AuthContext';
 import LoadingSpinner from '../../components/LoadingSpinner';
 import {getImageUrl, getBackdropId, getPrimaryImageId} from '../../utils/helpers';
+import {isBackKey} from '../../utils/tizenKeys';
 
 import css from './Library.module.less';
 
@@ -290,7 +291,7 @@ const Library = ({library, onSelectItem, onBack}) => {
 
 	useEffect(() => {
 		const handleKeyDown = (e) => {
-			if (e.keyCode === 461 || e.keyCode === 27) {
+			if (isBackKey(e)) {
 				if (showSortModal || showFilterModal) {
 					setShowSortModal(false);
 					setShowFilterModal(false);

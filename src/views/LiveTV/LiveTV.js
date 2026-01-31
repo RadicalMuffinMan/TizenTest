@@ -3,6 +3,7 @@ import Spottable from '@enact/spotlight/Spottable';
 import Spotlight from '@enact/spotlight';
 import {useAuth} from '../../context/AuthContext';
 import LoadingSpinner from '../../components/LoadingSpinner';
+import {isBackKey, TIZEN_KEYS} from '../../utils/tizenKeys';
 
 import css from './LiveTV.module.less';
 
@@ -159,7 +160,7 @@ const LiveTV = ({onPlayChannel, onBack, onRecordings}) => {
 			const keyCode = e.keyCode;
 
 			if (selectedProgram) {
-				if (keyCode === 461 || keyCode === 27 || keyCode === 8) {
+				if (isBackKey(e)) {
 					e.preventDefault();
 					e.stopPropagation();
 					setSelectedProgram(null);
@@ -174,7 +175,7 @@ const LiveTV = ({onPlayChannel, onBack, onRecordings}) => {
 				return;
 			}
 
-			if (keyCode === 461 || keyCode === 27 || keyCode === 8) {
+			if (isBackKey(e)) {
 				e.preventDefault();
 				onBack?.();
 				return;

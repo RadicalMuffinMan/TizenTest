@@ -1,349 +1,222 @@
-import {useState, useEffect, useCallback, useRef} from 'react';
+import {useState, useEffect, useCallback, useRef, useMemo} from 'react';
 import Spottable from '@enact/spotlight/Spottable';
-import {VirtualGridList} from '@enact/sandstone/VirtualList';
-import Popup from '@enact/sandstone/Popup';
-import Button from '@enact/sandstone/Button';
+import SpotlightContainerDecorator from '@enact/spotlight/SpotlightContainerDecorator';
+import Spotlight from '@enact/spotlight';
 import {useAuth} from '../../context/AuthContext';
 import LoadingSpinner from '../../components/LoadingSpinner';
-import {getImageUrl, getBackdropId, getPrimaryImageId} from '../../utils/helpers';
+import ProxiedImage from '../../components/ProxiedImage';
+import {getImageUrl, getPrimaryImageId} from '../../utils/helpers';
+import {isBackKey} from '../../utils/tizenKeys';
 
 import css from './Favorites.module.less';
 
 const SpottableDiv = Spottable('div');
 const SpottableButton = Spottable('button');
+const RowContainer = SpotlightContainerDecorator({enterTo: 'last-focused', restrict: 'self-first'}, 'div');
 
-const SORT_OPTIONS = [
-	{key: 'SortName,Ascending', label: 'Name (A-Z)'},
-	{key: 'SortName,Descending', label: 'Name (Z-A)'},
-	{key: 'CommunityRating,Descending', label: 'Rating'},
-	{key: 'DateCreated,Descending', label: 'Date Added'},
-	{key: 'PremiereDate,Descending', label: 'Release Date'}
-];
+const ITEMS_PER_PAGE = 20;
 
-const FILTER_OPTIONS = [
-	{key: 'all', label: 'All'},
-	{key: 'Movie', label: 'Movies'},
-	{key: 'Series', label: 'TV Shows'}
-];
-
-const BACKDROP_DEBOUNCE_MS = 300;
-
-const Favorites = ({onSelectItem, onBack}) => {
+const Favorites = ({onSelectItem, onSelectPerson, onBack}) => {
 	const {api, serverUrl} = useAuth();
-	const [items, setItems] = useState([]);
+	const [items, setItems] = useState({movies: [], shows: [], episodes: [], people: []});
 	const [isLoading, setIsLoading] = useState(true);
-	const [totalCount, setTotalCount] = useState(0);
-	const [sortBy, setSortBy] = useState('SortName,Ascending');
-	const [filterType, setFilterType] = useState('all');
-	const [backdropUrl, setBackdropUrl] = useState('');
-	const [showSortModal, setShowSortModal] = useState(false);
-	const [showFilterModal, setShowFilterModal] = useState(false);
+	const [displayCounts, setDisplayCounts] = useState({});
+	const scrollerRefs = useRef({});
 
-	const backdropTimeoutRef = useRef(null);
-	const backdropSetRef = useRef(false);
-	const loadingMoreRef = useRef(false);
-	const itemsLengthRef = useRef(0);
-	const itemsRef = useRef([]);
+	const getVisibleItems = useCallback((itemList, rowId) => {
+		const count = displayCounts[rowId] || ITEMS_PER_PAGE;
+		return itemList.slice(0, count);
+	}, [displayCounts]);
 
-	const loadItems = useCallback(async (startIndex = 0, append = false) => {
-		if (append && loadingMoreRef.current) return;
+	const rows = useMemo(() => {
+		const rowsData = [];
+		if (items.movies.length > 0) rowsData.push({id: 'movies', title: 'Movies', items: getVisibleItems(items.movies, 'movies'), totalCount: items.movies.length});
+		if (items.shows.length > 0) rowsData.push({id: 'shows', title: 'TV Shows', items: getVisibleItems(items.shows, 'shows'), totalCount: items.shows.length});
+		if (items.episodes.length > 0) rowsData.push({id: 'episodes', title: 'Episodes', items: getVisibleItems(items.episodes, 'episodes'), totalCount: items.episodes.length});
+		if (items.people.length > 0) rowsData.push({id: 'people', title: 'People', items: getVisibleItems(items.people, 'people'), totalCount: items.people.length});
+		return rowsData;
+	}, [items, getVisibleItems]);
 
-		if (append) {
-			loadingMoreRef.current = true;
-		}
+	const loadMoreItems = useCallback((rowId) => {
+		setDisplayCounts(prev => ({
+			...prev,
+			[rowId]: (prev[rowId] || ITEMS_PER_PAGE) + ITEMS_PER_PAGE
+		}));
+	}, []);
 
+	const loadItems = useCallback(async () => {
+		setIsLoading(true);
 		try {
-			const [sortField, sortOrder] = sortBy.split(',');
-			const params = {
-				StartIndex: startIndex,
-				Limit: 50,
-				SortBy: sortField,
-				SortOrder: sortOrder,
-				Recursive: true,
+			const result = await api.getItems({
 				Filters: 'IsFavorite',
-				EnableTotalRecordCount: true,
-				Fields: 'PrimaryImageAspectRatio,ProductionYear,Overview,ImageTags,BackdropImageTags,ParentBackdropImageTags,ParentBackdropItemId,SeriesId,SeriesPrimaryImageTag'
+				Recursive: true,
+				IncludeItemTypes: 'Movie,Series,Episode',
+				Fields: 'PrimaryImageAspectRatio,ProductionYear,ParentIndexNumber,IndexNumber,SeriesName'
+			});
+
+			const allItems = result.Items || [];
+			const categorized = {
+				movies: allItems.filter(item => item.Type === 'Movie'),
+				shows: allItems.filter(item => item.Type === 'Series'),
+				episodes: allItems.filter(item => item.Type === 'Episode'),
+				people: []
 			};
 
-			if (filterType !== 'all') {
-				params.IncludeItemTypes = filterType;
-			} else {
-				params.IncludeItemTypes = 'Movie,Series';
-			}
-
-			const result = await api.getItems(params);
-			const newItems = result.Items || [];
-
-			setItems(prev => {
-				const updatedItems = append ? [...prev, ...newItems] : newItems;
-				itemsLengthRef.current = updatedItems.length;
-				itemsRef.current = updatedItems;
-				return updatedItems;
+			const peopleResult = await api.getItems({
+				Filters: 'IsFavorite',
+				IncludeItemTypes: 'Person',
+				Fields: 'PrimaryImageAspectRatio'
 			});
-			setTotalCount(result.TotalRecordCount || 0);
+			categorized.people = peopleResult.Items || [];
 
-			if (!append && newItems.length > 0 && !backdropSetRef.current) {
-				const firstItemWithBackdrop = newItems.find(item => getBackdropId(item));
-				if (firstItemWithBackdrop) {
-					const url = getImageUrl(serverUrl, getBackdropId(firstItemWithBackdrop), 'Backdrop', {maxWidth: 1920, quality: 100});
-					setBackdropUrl(url);
-					backdropSetRef.current = true;
-				}
-			}
+			setItems(categorized);
 		} catch (err) {
 			console.error('Failed to load favorites:', err);
 		} finally {
 			setIsLoading(false);
-			loadingMoreRef.current = false;
 		}
-	}, [api, sortBy, filterType, serverUrl]);
+	}, [api]);
 
 	useEffect(() => {
-		setIsLoading(true);
-		setItems([]);
-		itemsLengthRef.current = 0;
-		backdropSetRef.current = false;
-		loadingMoreRef.current = false;
-		loadItems(0, false);
-	// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [sortBy, filterType]);
+		loadItems();
+	}, [loadItems]);
 
-	const updateBackdrop = useCallback((ev) => {
-		const itemIndex = ev.currentTarget?.dataset?.index;
-		if (itemIndex === undefined) return;
+	const handleCardClick = useCallback((ev) => {
+		const itemId = ev.currentTarget?.dataset?.itemId;
+		const itemType = ev.currentTarget?.dataset?.itemType;
+		if (!itemId) return;
 
-		const item = itemsRef.current[parseInt(itemIndex, 10)];
-		if (!item) return;
+		const allItems = [...items.movies, ...items.shows, ...items.episodes, ...items.people];
+		const item = allItems.find(i => i.Id === itemId);
 
-		const backdropId = getBackdropId(item);
-		if (backdropId) {
-			const url = getImageUrl(serverUrl, backdropId, 'Backdrop', {maxWidth: 1280, quality: 80});
-
-			if (backdropTimeoutRef.current) {
-				clearTimeout(backdropTimeoutRef.current);
-			}
-			backdropTimeoutRef.current = setTimeout(() => {
-				setBackdropUrl(url);
-			}, BACKDROP_DEBOUNCE_MS);
-		}
-	}, [serverUrl]);
-
-	const handleItemClick = useCallback((ev) => {
-		const itemIndex = ev.currentTarget?.dataset?.index;
-		if (itemIndex === undefined) return;
-
-		const item = itemsRef.current[parseInt(itemIndex, 10)];
 		if (item) {
-			onSelectItem?.(item);
+			if (itemType === 'Person') {
+				onSelectPerson?.(item);
+			} else {
+				onSelectItem?.(item);
+			}
 		}
-	}, [onSelectItem]);
+	}, [items, onSelectItem, onSelectPerson]);
 
-	const handleScrollStop = useCallback(() => {
-		if (itemsLengthRef.current < totalCount && !isLoading && !loadingMoreRef.current) {
-			loadItems(itemsLengthRef.current, true);
-		}
-	}, [totalCount, isLoading, loadItems]);
-
-	const handleOpenSortModal = useCallback(() => {
-		setShowSortModal(true);
-	}, []);
-
-	const handleOpenFilterModal = useCallback(() => {
-		setShowFilterModal(true);
-	}, []);
-
-	const handleCloseModal = useCallback(() => {
-		setShowSortModal(false);
-		setShowFilterModal(false);
-	}, []);
+	const handleRowFocus = useCallback((rowId, totalCount) => {
+		return () => {
+			const scroller = scrollerRefs.current[rowId];
+			if (scroller) {
+				const focusedElement = Spotlight.getCurrent();
+				if (focusedElement && scroller.contains(focusedElement)) {
+					const visibleCount = displayCounts[rowId] || ITEMS_PER_PAGE;
+					if (visibleCount < totalCount) {
+						loadMoreItems(rowId);
+					}
+				}
+			}
+		};
+	}, [displayCounts, loadMoreItems]);
 
 	useEffect(() => {
 		const handleKeyDown = (e) => {
-			if (e.keyCode === 461 || e.keyCode === 27) {
-				if (showSortModal || showFilterModal) {
-					setShowSortModal(false);
-					setShowFilterModal(false);
-				} else {
-					onBack?.();
-				}
+			if (isBackKey(e)) {
+				onBack?.();
 			}
 		};
 		document.addEventListener('keydown', handleKeyDown);
 		return () => document.removeEventListener('keydown', handleKeyDown);
-	}, [showSortModal, showFilterModal, onBack]);
+	}, [onBack]);
 
-	const handleSortSelect = useCallback((ev) => {
-		const key = ev.currentTarget?.dataset?.sortKey;
-		if (key) {
-			setSortBy(key);
-			setShowSortModal(false);
-		}
-	}, []);
-
-	const handleFilterSelect = useCallback((ev) => {
-		const key = ev.currentTarget?.dataset?.filterKey;
-		if (key) {
-			setFilterType(key);
-			setShowFilterModal(false);
-		}
-	}, []);
-
-	const renderItem = useCallback(({index, ...rest}) => {
-		const item = itemsRef.current[index];
-		if (!item) return null;
-
+	const renderCard = useCallback((item, index, rowId) => {
+		const isPerson = item.Type === 'Person';
+		const isEpisode = item.Type === 'Episode';
 		const imageId = getPrimaryImageId(item);
-		const imageUrl = imageId ? getImageUrl(serverUrl, imageId, 'Primary', {maxHeight: 300, quality: 80}) : null;
+		const imageUrl = imageId ? getImageUrl(serverUrl, imageId, 'Primary') : null;
+
+		let subtitle = '';
+		if (isEpisode) {
+			subtitle = `${item.SeriesName || ''} S${item.ParentIndexNumber || '?'}E${item.IndexNumber || '?'}`;
+		} else if (isPerson) {
+			subtitle = 'Person';
+		} else {
+			subtitle = item.ProductionYear || '';
+		}
 
 		return (
 			<SpottableDiv
-				{...rest}
-				className={css.itemCard}
-				onClick={handleItemClick}
-				onFocus={updateBackdrop}
-				data-index={index}
+				key={item.Id}
+				className={`${css.card} ${isPerson ? css.personCard : ''} ${isEpisode ? css.episodeCard : ''}`}
+				onClick={handleCardClick}
+				data-item-id={item.Id}
+				data-item-type={item.Type}
+				spotlightId={`${rowId}-item-${index}`}
 			>
-				{imageUrl ? (
-					<img
-						className={css.poster}
-						src={imageUrl}
-						alt={item.Name}
-						loading="lazy"
-					/>
-				) : (
-					<div className={css.posterPlaceholder}>
-						<svg viewBox="0 0 24 24" className={css.placeholderIcon}>
-							<path d="M18 4l2 4h-3l-2-4h-2l2 4h-3l-2-4H8l2 4H7L5 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V4h-4z" />
-						</svg>
-					</div>
-				)}
-				<div className={css.itemInfo}>
-					<div className={css.itemName}>{item.Name}</div>
-					{item.ProductionYear && (
-						<div className={css.itemYear}>{item.ProductionYear}</div>
+				<div className={`${css.cardImageWrapper} ${isPerson ? css.personImageWrapper : ''} ${isEpisode ? css.episodeImageWrapper : ''}`}>
+					{imageUrl ? (
+						<ProxiedImage
+							className={`${css.cardImage} ${isPerson ? css.personImage : ''}`}
+							src={imageUrl}
+							alt={item.Name}
+						/>
+					) : (
+						<div className={css.cardPlaceholder}>
+							<svg viewBox="0 0 24 24" className={css.placeholderIcon}>
+								<path d="M18 4l2 4h-3l-2-4h-2l2 4h-3l-2-4H8l2 4H7L5 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V4h-4z" />
+							</svg>
+						</div>
 					)}
 				</div>
+				<div className={css.cardTitle}>{item.Name}</div>
+				{subtitle && <div className={css.cardSubtitle}>{subtitle}</div>}
 			</SpottableDiv>
 		);
-	}, [serverUrl, handleItemClick, updateBackdrop]);
-
-	const currentSort = SORT_OPTIONS.find(o => o.key === sortBy);
-	const currentFilter = FILTER_OPTIONS.find(o => o.key === filterType);
+	}, [serverUrl, handleCardClick]);
 
 	return (
 		<div className={css.page}>
-			<div className={css.backdrop}>
-				{backdropUrl && (
-					<img className={css.backdropImage} src={backdropUrl} alt="" />
-				)}
-				<div className={css.backdropOverlay} />
+			<div className={css.pageHeader}>
+				<SpottableButton className={css.backButton} onClick={onBack}>
+					<svg viewBox="0 0 24 24">
+						<path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z" />
+					</svg>
+				</SpottableButton>
+				<h1 className={css.title}>Favorites</h1>
 			</div>
 
-			<div className={css.content}>
-				<div className={css.header}>
-					<SpottableButton className={css.backButton} onClick={onBack}>
-						<svg viewBox="0 0 24 24">
-							<path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z" />
-						</svg>
-					</SpottableButton>
-					<div className={css.titleSection}>
-						<div className={css.title}>Favorites</div>
-						<div className={css.subtitle}>
-							{currentSort?.label} • {currentFilter?.label}
-						</div>
+			<div className={css.favoritesResults}>
+				{isLoading ? (
+					<div className={css.loading}>
+						<LoadingSpinner />
 					</div>
-					<div className={css.counter}>{totalCount} items</div>
-				</div>
-
-				<div className={css.toolbar}>
-					<SpottableButton
-						className={css.sortButton}
-						onClick={handleOpenSortModal}
-					>
-						<svg viewBox="0 0 24 24">
-							<path d="M3 18h6v-2H3v2zM3 6v2h18V6H3zm0 7h12v-2H3v2z" />
-						</svg>
-						{currentSort?.label}
-					</SpottableButton>
-
-					<SpottableButton
-						className={css.filterButton}
-						onClick={handleOpenFilterModal}
-					>
-						<svg viewBox="0 0 24 24">
-							<path d="M10 18h4v-2h-4v2zM3 6v2h18V6H3zm3 7h12v-2H6v2z" />
-						</svg>
-						{currentFilter?.label}
-					</SpottableButton>
-				</div>
-
-				<div className={css.gridContainer}>
-					{isLoading && items.length === 0 ? (
-						<div className={css.loading}>
-							<LoadingSpinner />
+				) : rows.length === 0 ? (
+					<div className={css.empty}>
+						<div className={css.emptyIcon}>
+							<svg viewBox="0 0 24 24">
+								<path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" />
+							</svg>
 						</div>
-					) : items.length === 0 ? (
-						<div className={css.empty}>No favorites yet</div>
-					) : (
-						<VirtualGridList
-							className={css.grid}
-							dataSize={items.length}
-							itemRenderer={renderItem}
-							itemSize={{minWidth: 180, minHeight: 340}}
-							spacing={20}
-							onScrollStop={handleScrollStop}
-						/>
-					)}
-				</div>
+						<div className={css.emptyText}>No favorites yet</div>
+					</div>
+				) : (
+					rows.map((row) => (
+						<div key={row.id} className={css.resultRow}>
+							<RowContainer spotlightId={`row-${row.id}`}>
+								<h2 className={css.rowTitle}>
+									{row.title}
+									{row.items.length < row.totalCount && (
+										<span className={css.loadMore}> (Showing {row.items.length} of {row.totalCount})</span>
+									)}
+								</h2>
+								<div
+									className={css.rowScroller}
+									ref={(el) => {scrollerRefs.current[row.id] = el;}}
+									onFocus={handleRowFocus(row.id, row.totalCount)}
+								>
+									<div className={css.resultItems}>
+										{row.items.map((item, index) => renderCard(item, index, row.id))}
+									</div>
+								</div>
+							</RowContainer>
+						</div>
+					))
+				)}
 			</div>
-
-			<Popup
-				open={showSortModal}
-				onClose={handleCloseModal}
-				position="center"
-				scrimType="translucent"
-				noAutoDismiss
-			>
-				<div className={css.popupContent}>
-					<div className={css.modalTitle}>Sort By</div>
-					{SORT_OPTIONS.map((option) => (
-						<Button
-							key={option.key}
-							className={css.popupOption}
-							selected={sortBy === option.key}
-							onClick={handleSortSelect}
-							data-sort-key={option.key}
-							size="small"
-						>
-							{option.label}
-						</Button>
-					))}
-				</div>
-			</Popup>
-
-			<Popup
-				open={showFilterModal}
-				onClose={handleCloseModal}
-				position="center"
-				scrimType="translucent"
-				noAutoDismiss
-			>
-				<div className={css.popupContent}>
-					<div className={css.modalTitle}>Filter</div>
-					{FILTER_OPTIONS.map((option) => (
-						<Button
-							key={option.key}
-							className={css.popupOption}
-							selected={filterType === option.key}
-							onClick={handleFilterSelect}
-							data-filter-key={option.key}
-							size="small"
-						>
-							{option.label}
-						</Button>
-					))}
-				</div>
-			</Popup>
 		</div>
 	);
 };

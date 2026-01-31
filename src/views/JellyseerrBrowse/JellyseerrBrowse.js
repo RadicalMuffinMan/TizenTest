@@ -6,6 +6,7 @@ import Button from '@enact/sandstone/Button';
 import {useJellyseerr} from '../../context/JellyseerrContext';
 import LoadingSpinner from '../../components/LoadingSpinner';
 import * as jellyseerrApi from '../../services/jellyseerrApi';
+import {isBackKey} from '../../utils/tizenKeys';
 
 import css from './JellyseerrBrowse.module.less';
 
@@ -173,7 +174,7 @@ const JellyseerrBrowse = ({browseType, item, mediaType: initialMediaType, onSele
 
 	useEffect(() => {
 		const handleKeyDown = (e) => {
-			if (e.keyCode === 461 || e.keyCode === 27) {
+			if (isBackKey(e)) {
 				if (showFilterModal) {
 					setShowFilterModal(false);
 				} else {

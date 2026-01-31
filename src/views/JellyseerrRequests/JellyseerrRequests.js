@@ -12,6 +12,7 @@ import Spotlight from '@enact/spotlight';
 import Spottable from '@enact/spotlight/Spottable';
 import jellyseerrApi from '../../services/jellyseerrApi';
 import {useJellyseerr} from '../../context/JellyseerrContext';
+import {isBackKey} from '../../utils/tizenKeys';
 import css from './JellyseerrRequests.module.less';
 
 const SpottableRow = Spottable('div');
@@ -104,7 +105,7 @@ const JellyseerrRequests = ({onSelectItem, onClose, ...rest}) => {
 
 	useEffect(() => {
 		const handleKeyDown = (e) => {
-			if (e.keyCode === 461 || e.keyCode === 27) {
+			if (isBackKey(e)) {
 				onClose?.();
 			}
 		};

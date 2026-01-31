@@ -245,7 +245,7 @@ export const keepScreenOn = async () => {
 };
 
 export const getAudioOutputInfo = async () => {
-	// Tizen doesn't have a direct equivalent to webOS audio output info
+	// Tizen doesn't have a direct equivalent to LG's audio output info
 	return null;
 };
 

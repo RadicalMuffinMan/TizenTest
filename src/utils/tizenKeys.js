@@ -237,7 +237,7 @@ export const isKey = (event, tizenKeyCode) => {
  */
 export const isBackKey = (event) => {
 	return event.keyCode === TIZEN_KEYS.BACK ||
-		event.keyCode === 461 || // webOS back (for compatibility)
+
 		event.keyCode === 27 ||  // Escape (for browser testing)
 		event.keyCode === 8;     // Backspace
 };

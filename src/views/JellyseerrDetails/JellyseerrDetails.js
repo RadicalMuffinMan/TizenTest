@@ -8,6 +8,7 @@ import Button from '@enact/sandstone/Button';
 import jellyseerrApi, {canRequestMovies, canRequestTv, canRequest4kMovies, canRequest4kTv, hasAdvancedRequestPermission} from '../../services/jellyseerrApi';
 import {useJellyseerr} from '../../context/JellyseerrContext';
 import LoadingSpinner from '../../components/LoadingSpinner';
+import {isBackKey} from '../../utils/tizenKeys';
 import css from './JellyseerrDetails.module.less';
 
 const SpottableDiv = Spottable('div');
@@ -676,7 +677,7 @@ const JellyseerrDetails = ({mediaType, mediaId, onClose, onSelectItem, onSelectP
 
 	useEffect(() => {
 		const handleKeyDown = (e) => {
-			if (e.keyCode === 461 || e.keyCode === 27) {
+			if (isBackKey(e)) {
 				if (showAdvancedPopup) {
 					setShowAdvancedPopup(false);
 				} else if (showSeasonPopup) {

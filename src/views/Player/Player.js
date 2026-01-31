@@ -672,7 +672,7 @@ const Player = ({item, onEnded, onBack, onPlayNext}) => {
 		const handleKeyDown = (e) => {
 			const key = e.key || e.keyCode;
 
-			// Back button - Tizen (10009), webOS (461), Browser Escape (27), Backspace (8)
+			// Back button
 			if (isBackKey(e) || key === 'GoBack' || key === 'Backspace') {
 				e.preventDefault();
 				e.stopPropagation();

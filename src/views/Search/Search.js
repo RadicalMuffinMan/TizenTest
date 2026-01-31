@@ -7,6 +7,7 @@ import {useJellyseerr} from '../../context/JellyseerrContext';
 import LoadingSpinner from '../../components/LoadingSpinner';
 import ProxiedImage from '../../components/ProxiedImage';
 import {getImageUrl} from '../../utils/helpers';
+import {isBackKey, TIZEN_KEYS} from '../../utils/tizenKeys';
 
 import css from './Search.module.less';
 
@@ -146,14 +147,14 @@ const Search = ({onSelectItem, onSelectPerson, onBack}) => {
 	}, [doSearch]);
 
 	const handleInputKeyDown = useCallback((e) => {
-		if (e.keyCode === 40) {
+		if (e.keyCode === TIZEN_KEYS.DOWN) {
 			e.preventDefault();
 			if (visibleRows.length > 0) {
 				Spotlight.focus('search-row-0');
 			}
-		} else if (e.keyCode === 38) {
+		} else if (e.keyCode === TIZEN_KEYS.UP) {
 			e.preventDefault();
-		} else if (e.keyCode === 461 || e.keyCode === 8) {
+		} else if (isBackKey(e)) {
 			if (!query) {
 				e.preventDefault();
 				onBack?.();
@@ -163,7 +164,7 @@ const Search = ({onSelectItem, onSelectPerson, onBack}) => {
 
 	const handleRowKeyDown = useCallback((e) => {
 		const rowIndex = parseInt(e.currentTarget.dataset.rowIndex, 10);
-		if (e.keyCode === 38) {
+		if (e.keyCode === TIZEN_KEYS.UP) {
 			e.preventDefault();
 			e.stopPropagation();
 			if (rowIndex === 0) {
@@ -171,13 +172,13 @@ const Search = ({onSelectItem, onSelectPerson, onBack}) => {
 			} else {
 				Spotlight.focus(`search-row-${rowIndex - 1}`);
 			}
-		} else if (e.keyCode === 40) {
+		} else if (e.keyCode === TIZEN_KEYS.DOWN) {
 			e.preventDefault();
 			e.stopPropagation();
 			if (rowIndex < visibleRows.length - 1) {
 				Spotlight.focus(`search-row-${rowIndex + 1}`);
 			}
-		} else if (e.keyCode === 461 || e.keyCode === 8) {
+		} else if (isBackKey(e)) {
 			e.preventDefault();
 			onBack?.();
 		}

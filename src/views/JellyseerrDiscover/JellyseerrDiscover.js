@@ -5,6 +5,7 @@ import Spotlight from '@enact/spotlight';
 import {useJellyseerr} from '../../context/JellyseerrContext';
 import jellyseerrApi from '../../services/jellyseerrApi';
 import LoadingSpinner from '../../components/LoadingSpinner';
+import {isBackKey} from '../../utils/tizenKeys';
 
 import css from './JellyseerrDiscover.module.less';
 
@@ -267,7 +268,7 @@ const JellyseerrDiscover = ({onSelectItem, onSelectGenre, onSelectNetwork, onSel
 
 	useEffect(() => {
 		const handleKeyDown = (e) => {
-			if (e.keyCode === 461 || e.keyCode === 27) {
+			if (isBackKey(e)) {
 				onBack?.();
 			}
 		};
