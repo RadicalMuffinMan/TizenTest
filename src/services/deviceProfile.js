@@ -3,6 +3,14 @@
  * Device Profile Service - Detects Samsung Tizen TV hardware capabilities
  *
  * Uses Tizen webapis to detect panel resolution, HDR support, codec support, etc.
+ *
+ * Samsung Tizen TV Specifications Reference (2018-2025):
+ * https://developer.samsung.com/smarttv/develop/specifications/media-specifications.html
+ * https://developer.samsung.com/smarttv/develop/specifications/general-specifications.html
+ * https://developer.samsung.com/smarttv/develop/specifications/multimedia/adaptive-streaming.html
+ * https://developer.samsung.com/smarttv/develop/specifications/multimedia/subtitles.html
+ * https://developer.samsung.com/smarttv/develop/specifications/multimedia/4k-8k-uhd-video.html
+ *
  */
 
 let cachedCapabilities = null;
@@ -11,9 +19,14 @@ export const clearCapabilitiesCache = () => {
 	cachedCapabilities = null;
 };
 
+/**
+ * Detect Tizen version from firmware year.
+ * Mapping based on Samsung TV Model Groups documentation:
+ * https://developer.samsung.com/smarttv/develop/specifications/tv-model-groups.html
+ */
 export const detectTizenVersion = () => {
 	if (typeof webapis === 'undefined' || !webapis.productinfo) {
-		return 4; // Default assumption
+		return 4; // Default assumption (2018)
 	}
 
 	try {
@@ -22,7 +35,8 @@ export const detectTizenVersion = () => {
 		const match = firmware?.match(/(\d{4})/);
 		if (match) {
 			const year = parseInt(match[1], 10);
-			// Map TV years to Tizen versions
+			// Map TV years to Tizen versions per Samsung documentation
+			if (year >= 2025) return 9;
 			if (year >= 2024) return 8;
 			if (year >= 2023) return 7;
 			if (year >= 2022) return 6.5;
@@ -40,49 +54,120 @@ export const detectTizenVersion = () => {
 	return 4;
 };
 
-const getDocumentedContainerSupport = (tizenVersion) => {
-	// Samsung Tizen TVs have good container support
+/**
+ * Determine the model year from firmware for spec-accurate capability mapping.
+ */
+const detectModelYear = () => {
+	if (typeof webapis === 'undefined' || !webapis.productinfo) {
+		return 2018; // Default assumption
+	}
+
+	try {
+		const firmware = webapis.productinfo.getFirmware();
+		const match = firmware?.match(/(\d{4})/);
+		if (match) {
+			return parseInt(match[1], 10);
+		}
+	} catch (e) {
+		// Fall through
+	}
+
+	return 2018;
+};
+
+/**
+ * Container support per Samsung specifications.
+ * All years (2018-2025) support: MP4, M4V, MKV, TS, MOV, AVI
+ * Note: HEVC is restricted to MKV/MP4/TS containers per Samsung docs.
+ * Note: WMV/ASF dropped from 24TV_BASIC4 and 2025+ models.
+ */
+const getDocumentedContainerSupport = () => {
 	return {
 		mp4: true,
 		m4v: true,
 		ts: true,
 		mov: true,
-		avi: tizenVersion >= 3,
-		webm: tizenVersion >= 4,
+		avi: true,
 		mkv: true,
+		webm: true,
 		hls: true
 	};
 };
 
-export const testHevcSupport = (tizenVersion = 4) => {
-	return tizenVersion >= 3;
+/**
+ * HEVC support - Available on all Samsung TVs from 2018+
+ * Per Samsung docs: "HEVC: Supported only for MKV/MP4/TS containers"
+ */
+export const testHevcSupport = () => {
+	return true;
 };
 
+/**
+ * AV1 support - Listed in Samsung per-year video spec tables from 2020 onwards.
+ * 2020 (Tizen 5.5): AV1 on Premium/Standard/Basic1 UHD tiers (WebM container only)
+ * 2021 (Tizen 6): AV1 on ALL tiers including FHD models
+ * 2022+ (Tizen 6.5+): AV1 on all tiers; 8K Premium models also support AV1 in MP4/MKV/TS
+ */
 export const testAv1Support = (tizenVersion = 4) => {
-	return tizenVersion >= 6;
+	return tizenVersion >= 5.5;
 };
 
-export const testVp9Support = (tizenVersion = 4) => {
-	return tizenVersion >= 4;
+/**
+ * VP9 support - Listed in Samsung spec tables.
+ * 2018-2020 (Tizen 4-5.5): UHD models only (WebM container)
+ * 2021+ (Tizen 6+): ALL models including FHD (WebM container)
+ * FHD-only models before 2021 (e.g. 20TV_BASIC2) have VP8 only, no VP9.
+ */
+export const testVp9Support = (tizenVersion = 4, uhd = true) => {
+	return tizenVersion >= 6 || (tizenVersion >= 4 && uhd);
 };
 
-export const testDtsSupport = () => true;
+/**
+ * DTS support - Samsung explicitly states DTS is NOT supported on ANY TV (2018-2025).
+ *
+ * From Samsung docs (every year):
+ * "The DTS Audio codec is not supported on [year] TVs. For smooth playback,
+ *  if a DTS Audio track is part of your manifest, make sure other audio tracks
+ *  can be selected."
+ */
+export const testDtsSupport = () => false;
 
+/**
+ * AC3 (Dolby Digital) support - Supported on all Samsung TVs.
+ */
 export const testAc3Support = () => true;
+
+/**
+ * EAC3 (DD+) support - Supported on all Samsung TVs 2018+.
+ * Samsung docs: "DD+: 5.1 channel supported"
+ */
+export const testEac3Support = () => true;
+
+/**
+ * TrueHD support - NOT documented in Samsung specifications.
+ * Samsung spec tables list: AAC, MP3, Vorbis, AC3, EAC3, WMA, Opus, etc.
+ * TrueHD (lossless Dolby) is never mentioned.
+ */
+export const testTruehdSupport = () => false;
 
 export const getDeviceCapabilities = async () => {
 	if (cachedCapabilities) return cachedCapabilities;
 
 	const tizenVersion = detectTizenVersion();
-	const containerSupport = getDocumentedContainerSupport(tizenVersion);
+	const modelYear = detectModelYear();
+	const containerSupport = getDocumentedContainerSupport();
 
 	let modelName = 'Samsung TV';
 	let serialNumber = '';
 	let deviceId = '';
 	let uhd = true;
 	let uhd8K = false;
+	// HDR10: Available on premium/standard UHD models from 2018+
+	// Runtime detection via avinfo API is more accurate
 	let hdr10 = tizenVersion >= 4;
-	let dolbyVision = tizenVersion >= 5;
+	// Dolby Vision: Hardware-dependent, detect via avinfo API
+	// Fallback to false — let runtime detection enable it
+	let dolbyVision = false;
 
 	if (typeof webapis !== 'undefined') {
 		try {
@@ -129,6 +214,7 @@ export const getDeviceCapabilities = async () => {
 		firmwareVersion: '',
 
 		tizenVersion,
+		modelYear,
 		tizenVersionDisplay: `Tizen ${tizenVersion}`,
 
 		screenWidth: uhd8K ? 7680 : uhd ? 3840 : 1920,
@@ -137,20 +223,25 @@ export const getDeviceCapabilities = async () => {
 		uhd8K,
 		oled: false, // Can't detect reliably on Tizen
 
+		// HDR capabilities
 		hdr10,
-		hdr10Plus: tizenVersion >= 5,
-		hlg: tizenVersion >= 4,
+		hdr10Plus: hdr10 && tizenVersion >= 5, // HDR10+ on 2019+ premium models
+		hlg: hdr10 && tizenVersion >= 4, // HLG on 2018+ HDR-capable models
 		dolbyVision,
 
-		dolbyAtmos: tizenVersion >= 4,
-		dts: testDtsSupport(),
+		// Audio capabilities - per Samsung documentation
+		// Samsung docs: "DD+: 5.1 channel supported" for all years
+		// No documentation supports 7.1/8-channel audio on Tizen TVs
+		dolbyAtmos: false, // Not documented in Samsung specs
+		dts: testDtsSupport(), // false - Samsung explicitly says not supported
 		ac3: testAc3Support(),
-		eac3: true,
-		truehd: tizenVersion >= 5,
+		eac3: testEac3Support(),
+		truehd: testTruehdSupport(), // false - not in Samsung specs
 
-		hevc: testHevcSupport(tizenVersion),
+		// Video codec capabilities
+		hevc: testHevcSupport(),
 		av1: testAv1Support(tizenVersion),
-		vp9: testVp9Support(tizenVersion),
+		vp9: testVp9Support(tizenVersion, uhd),
 
 		...containerSupport,
 
@@ -166,48 +257,92 @@ export const getDeviceCapabilities = async () => {
 export const getJellyfinDeviceProfile = async () => {
 	const caps = await getDeviceCapabilities();
 
-	const videoCodecs = ['h264'];
-	if (caps.hevc) videoCodecs.push('hevc');
-	if (caps.vp9) videoCodecs.push('vp9');
-	if (caps.av1) videoCodecs.push('av1');
+	// --- Video codecs per Samsung spec tables ---
+	// General containers (MP4/MKV/TS/AVI/MOV): H.264, HEVC
+	// WebM container only: VP9, AV1 (most models)
+	// Exception: 8K Premium 2022+ models support AV1 in general containers too
+	const generalVideoCodecs = ['h264'];
+	if (caps.hevc) generalVideoCodecs.push('hevc');
 
+	// WebM-only codecs per Samsung spec tables
+	const webmVideoCodecs = [];
+	if (caps.vp9) webmVideoCodecs.push('vp9');
+	if (caps.av1) webmVideoCodecs.push('av1');
+
+	// For 8K Premium 2022+ models, AV1 is also available in general containers
+	if (caps.av1 && caps.uhd8K && caps.tizenVersion >= 6.5) {
+		generalVideoCodecs.push('av1');
+	}
+
+	// All supported video codecs (for HLS/transcode profiles)
+	const allVideoCodecs = [...generalVideoCodecs];
+	if (caps.vp9 && !allVideoCodecs.includes('vp9')) allVideoCodecs.push('vp9');
+	if (caps.av1 && !allVideoCodecs.includes('av1')) allVideoCodecs.push('av1');
+
+	// Audio codecs per Samsung spec tables
+	// Per Samsung video spec tables: AAC, MP3, Vorbis, AC3, EAC3, Opus, LPCM, ADPCM, WMA, G.711
+	// FLAC: Listed in Samsung Music format table (media-specifications.html) as a supported codec
+	// ALAC: Also listed in Music table but omitted here (niche format, m4a container shared with AAC)
+	// NOT supported: DTS (explicitly stated), TrueHD (not documented)
 	const audioCodecs = ['aac', 'mp3', 'flac', 'opus', 'vorbis', 'pcm', 'wav'];
 	if (caps.ac3) audioCodecs.push('ac3');
 	if (caps.eac3) audioCodecs.push('eac3');
-	if (caps.dts) audioCodecs.push('dts', 'dca');
-	if (caps.truehd) audioCodecs.push('truehd');
+	// DTS intentionally excluded - Samsung docs: "DTS Audio codec is not supported"
+	// TrueHD intentionally excluded - not in Samsung specifications
 
-	const videoContainers = [];
-	if (caps.mp4) videoContainers.push('mp4');
-	if (caps.m4v) videoContainers.push('m4v');
-	if (caps.webm) videoContainers.push('webm');
-	if (caps.ts) videoContainers.push('ts', 'mpegts');
-	if (caps.mkv) videoContainers.push('mkv', 'matroska');
-	if (caps.mov) videoContainers.push('mov');
+	// General video containers per Samsung spec tables (for H.264/HEVC)
+	// Note: HEVC only works in MKV/MP4/TS per Samsung docs
+	const generalContainers = [];
+	if (caps.mp4) generalContainers.push('mp4');
+	if (caps.m4v) generalContainers.push('m4v');
+	if (caps.ts) generalContainers.push('ts', 'mpegts');
+	if (caps.mkv) generalContainers.push('mkv', 'matroska');
+	if (caps.mov) generalContainers.push('mov');
+	if (caps.avi) generalContainers.push('avi');
 
-	console.log('[deviceProfile] DirectPlayProfiles:', [{Container: videoContainers.join(','), VideoCodec: videoCodecs.join(','), AudioCodec: audioCodecs.join(',')}]);
+	console.log('[deviceProfile] DirectPlayProfiles - General:', generalContainers.join(','), generalVideoCodecs.join(','));
+	console.log('[deviceProfile] DirectPlayProfiles - WebM:', webmVideoCodecs.join(','));
 
-	const maxBitrate = caps.uhd8K ? 200000000 : caps.uhd ? 120000000 : 80000000;
-	const maxAudioChannels = caps.dolbyAtmos ? '8' : '6';
+	// Max bitrates per Samsung spec tables:
+	// 8K HEVC: ~80 Mbps per spec tables
+	// UHD: ~60-80 Mbps for HEVC UHD
+	// FHD: ~40 Mbps
+	const maxBitrate = caps.uhd8K ? 100000000 : caps.uhd ? 80000000 : 40000000;
+
+	// Samsung docs: "DD+: 5.1 channel supported" for most models
+	// 8K adaptive streaming spec lists DD/DD+ (5.1, 7.1) — 8K models support 7.1
+	const maxAudioChannels = caps.uhd8K ? '8' : '6';
 
 	const directPlayProfiles = [
+		// General containers: H.264, HEVC (+ AV1 for 8K Premium 2022+)
 		{
-			Container: videoContainers.join(','),
+			Container: generalContainers.join(','),
 			Type: 'Video',
-			VideoCodec: videoCodecs.join(','),
+			VideoCodec: generalVideoCodecs.join(','),
 			AudioCodec: audioCodecs.join(',')
-		},
-		{
-			Container: 'mp3,flac,aac,m4a,ogg,opus,wav,wma',
-			Type: 'Audio'
 		}
 	];
+
+	// WebM container: VP9, AV1 (per Samsung spec tables, these codecs are WebM-only)
+	if (webmVideoCodecs.length > 0) {
+		directPlayProfiles.push({
+			Container: 'webm',
+			Type: 'Video',
+			VideoCodec: webmVideoCodecs.join(','),
+			AudioCodec: 'vorbis,opus' // Samsung spec: WebM audio is Vorbis (+ Opus on some)
+		});
+	}
+
+	directPlayProfiles.push({
+		Container: 'mp3,flac,aac,m4a,ogg,opus,wav',
+		Type: 'Audio'
+	});
 
 	if (caps.nativeHls) {
 		directPlayProfiles.push({
 			Container: 'm3u8',
 			Type: 'Video',
-			VideoCodec: videoCodecs.join(','),
+			VideoCodec: allVideoCodecs.join(','),
 			AudioCodec: audioCodecs.join(',')
 		});
 	}
@@ -241,6 +376,26 @@ export const getJellyfinDeviceProfile = async () => {
 		}
 	];
 
+	// H.264 Level per Samsung spec tables:
+	// 2018-2019: FHD Level 4.1, UHD Level 5.1
+	// 2020+: FHD Level 4.2, UHD Level 5.1
+	const h264Level = caps.uhd ? '51' : (caps.modelYear >= 2020 ? '42' : '41');
+
+	// HEVC Level per Samsung spec tables:
+	// FHD: Level 4.1 (all years)
+	// UHD Standard/Basic: Level 5.1
+	// UHD Premium (2020+): Level 5.2
+	// 8K: Level 6.1
+	let hevcLevel;
+	if (caps.uhd8K) {
+		hevcLevel = '183'; // Level 6.1 (6.1 * 30 = 183 in Jellyfin encoding)
+	} else if (caps.uhd) {
+		// Use 5.1 (153) as safe default — premium models support 5.2 (156)
+		hevcLevel = '153'; // Level 5.1
+	} else {
+		hevcLevel = '123'; // Level 4.1
+	}
+
 	const codecProfiles = [
 		{
 			Type: 'Video',
@@ -255,7 +410,7 @@ export const getJellyfinDeviceProfile = async () => {
 				{
 					Condition: 'LessThanEqual',
 					Property: 'VideoLevel',
-					Value: caps.uhd ? '51' : '41',
+					Value: h264Level,
 					IsRequired: false
 				},
 				{
@@ -279,7 +434,7 @@ export const getJellyfinDeviceProfile = async () => {
 				{
 					Condition: 'LessThanEqual',
 					Property: 'VideoLevel',
-					Value: caps.uhd ? '153' : '120',
+					Value: hevcLevel,
 					IsRequired: false
 				},
 				{
@@ -317,24 +472,30 @@ export const getJellyfinDeviceProfile = async () => {
 				{
 					Condition: 'LessThanEqual',
 					Property: 'VideoBitDepth',
-					Value: '10',
+					Value: caps.hdr10 ? '10' : '8',
 					IsRequired: false
 				}
 			]
 		});
 	}
 
+	// Subtitle profiles
+	// Samsung general specs: SAMI (UTF-8), SubRip, SMPTE-TT, WebVTT (out-of-band), Closed Caption
+	// Samsung AVPlay natively supports: SAMI (.smi), SMPTE-TT, DFXP (Smooth Streaming only)
+	// For HLS: Samsung recommends WebVTT (out-of-band)
+	// Jellyfin delivers external subs as VTT via its API, so ASS/SSA work
+	// after server-side conversion to VTT.
 	const subtitleProfiles = [
-		{Format: 'srt', Method: 'External'},
-		{Format: 'ass', Method: 'External'},
-		{Format: 'ssa', Method: 'External'},
-		{Format: 'vtt', Method: 'External'},
-		{Format: 'sub', Method: 'External'},
-		{Format: 'smi', Method: 'External'},
-		{Format: 'ttml', Method: 'External'},
-		{Format: 'pgs', Method: 'Embed'},
-		{Format: 'dvdsub', Method: 'Embed'},
-		{Format: 'dvbsub', Method: 'Embed'}
+		{Format: 'srt', Method: 'External'},  // Samsung native SubRip support
+		{Format: 'vtt', Method: 'External'},   // Native WebVTT — Samsung recommended for HLS
+		{Format: 'ass', Method: 'External'},   // Jellyfin converts to VTT for delivery
+		{Format: 'ssa', Method: 'External'},   // Jellyfin converts to VTT for delivery
+		{Format: 'smi', Method: 'External'},   // Samsung native SAMI support
+		{Format: 'ttml', Method: 'External'},  // Samsung native SMPTE-TT support
+		{Format: 'sub', Method: 'External'},   // Jellyfin converts for delivery
+		{Format: 'pgs', Method: 'Embed'},      // Burn-in only — image-based subtitle
+		{Format: 'dvdsub', Method: 'Embed'},   // Burn-in only — image-based subtitle
+		{Format: 'dvbsub', Method: 'Embed'}    // Burn-in only — image-based subtitle
 	];
 
 	const responseProfiles = [

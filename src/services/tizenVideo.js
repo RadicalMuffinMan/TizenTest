@@ -21,7 +21,8 @@ export const getTizenVersion = () => {
 			const match = firmware?.match(/(\d{4})/);
 			if (match) {
 				const year = parseInt(match[1], 10);
-				// Map years to approximate Tizen versions
+				// Map years to Tizen versions per Samsung TV Model Groups docs
+				if (year >= 2025) return 9;
 				if (year >= 2024) return 8;
 				if (year >= 2023) return 7;
 				if (year >= 2022) return 6.5;
@@ -56,6 +57,19 @@ export const initTizenAPI = async () => {
 	return false;
 };
 
+/**
+ * Default capabilities fallback - aligned with Samsung spec tables.
+ * These values are used when webapis is unavailable (e.g., browser testing).
+ * Runtime detection in getMediaCapabilities() overrides where possible.
+ *
+ * Key Samsung documentation facts applied here:
+ * - DTS: NOT supported on any Samsung TV (explicitly stated 2018-2025)
+ * - TrueHD: Not documented in Samsung specifications
+ * - Dolby Atmos: Not documented in Samsung audio specs
+ * - DD+ (EAC3): Limited to 5.1 channels
+ * - VP9: UHD models from 2018+, ALL models (incl FHD) from 2021+ (Tizen 6+)
+ * - AV1: 2020+ (Tizen 5.5+) all tiers; WebM container for most, general containers on 8K Premium 2022+
+ */
 const getDefaultCapabilities = () => {
 	const tizenVersion = getTizenVersion();
 	return {
@@ -64,15 +78,14 @@ const getDefaultCapabilities = () => {
 		uhd: true,
 		uhd8K: false,
 		hdr10: tizenVersion >= 4,
-		dolbyVision: tizenVersion >= 5,
-		dolbyAtmos: tizenVersion >= 4,
+		dolbyVision: false, // Detect via avinfo API at runtime, not by version
+		dolbyAtmos: false, // Not documented in Samsung audio specifications
 		hevc: true,
-		av1: tizenVersion >= 6,
+		av1: tizenVersion >= 5.5,
 		vp9: tizenVersion >= 4,
-		dts: true,
 		ac3: true,
 		eac3: true,
-		truehd: tizenVersion >= 5,
+		truehd: false, // Not in Samsung specifications
 		mkv: true,
 		nativeHls: true,
 		nativeHlsFmp4: true,
@@ -136,18 +149,36 @@ export const getPlayMethod = (mediaSource, capabilities) => {
 	if (capabilities.dolbyVision) supportedVideoCodecs.push('dvhe', 'dvh1');
 
 	const audioCodec = (audioStream?.Codec || '').toLowerCase();
-	const supportedAudioCodecs = ['aac', 'mp3', 'flac', 'opus', 'vorbis'];
+	// Audio codecs per Samsung spec tables — DTS and TrueHD intentionally excluded
+	const supportedAudioCodecs = ['aac', 'mp3', 'flac', 'opus', 'vorbis', 'pcm', 'wav'];
 	if (capabilities.ac3) supportedAudioCodecs.push('ac3');
 	if (capabilities.eac3) supportedAudioCodecs.push('eac3');
-	if (capabilities.dts) supportedAudioCodecs.push('dts', 'dca');
-	if (capabilities.truehd) supportedAudioCodecs.push('truehd');
+	// DTS: Samsung explicitly states not supported on any TV (2018-2025)
+	// TrueHD: Not documented in Samsung specifications
 
-	const supportedContainers = ['mp4', 'm4v', 'mov', 'ts', 'mpegts', 'mkv', 'matroska', 'webm'];
+	const supportedContainers = ['mp4', 'm4v', 'mov', 'ts', 'mpegts', 'mkv', 'matroska', 'webm', 'avi'];
 	if (capabilities.nativeHls) supportedContainers.push('m3u8');
 
 	const videoOk = !videoCodec || supportedVideoCodecs.includes(videoCodec);
 	const audioOk = !audioCodec || supportedAudioCodecs.includes(audioCodec);
 	const containerOk = !container || supportedContainers.includes(container);
+
+	// Samsung docs: "HEVC: Supported only for MKV/MP4/TS containers"
+	const hevcContainerOk = videoCodec === 'hevc' || videoCodec === 'h265' || videoCodec === 'hev1' || videoCodec === 'hvc1'
+		? ['mp4', 'mkv', 'matroska', 'ts', 'mpegts', 'm4v'].includes(container)
+		: true;
+
+	// Samsung spec tables: VP9 is WebM container only (all years)
+	const vp9ContainerOk = videoCodec === 'vp9'
+		? container === 'webm'
+		: true;
+
+	// Samsung spec tables: AV1 is WebM container only for most models.
+	// 8K Premium 2022+ (Tizen >= 6.5) also supports AV1 in general containers (MP4/MKV/TS/AVI).
+	const av1GeneralContainers = capabilities.uhd8K && capabilities.tizenVersion >= 6.5;
+	const av1ContainerOk = videoCodec === 'av1'
+		? (container === 'webm' || (av1GeneralContainers && ['mp4', 'mkv', 'matroska', 'ts', 'mpegts', 'avi'].includes(container)))
+		: true;
 
 	let hdrOk = true;
 	if (videoStream?.VideoRangeType) {
@@ -168,17 +199,22 @@ export const getPlayMethod = (mediaSource, capabilities) => {
 		audioOk,
 		containerOk,
 		hdrOk,
+		hevcContainerOk,
+		vp9ContainerOk,
+		av1ContainerOk,
 		supportedContainers,
 		supportedVideoCodecs,
 		supportedAudioCodecs,
 		serverSupportsDirectPlay: mediaSource.SupportsDirectPlay
 	});
 
-	if (mediaSource.SupportsDirectPlay && videoOk && audioOk && containerOk && hdrOk) {
+	const codecContainerOk = hevcContainerOk && vp9ContainerOk && av1ContainerOk;
+
+	if (mediaSource.SupportsDirectPlay && videoOk && audioOk && containerOk && hdrOk && codecContainerOk) {
 		return 'DirectPlay';
 	}
 
-	if (mediaSource.SupportsDirectStream && videoOk && containerOk) {
+	if (mediaSource.SupportsDirectStream && videoOk && containerOk && codecContainerOk) {
 		return 'DirectStream';
 	}
 

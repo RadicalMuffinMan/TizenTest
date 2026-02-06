@@ -40,10 +40,11 @@ const selectMediaSource = (mediaSources, capabilities, options) => {
 
 		const audioStream = source.MediaStreams?.find(s => s.Type === 'Audio');
 		if (audioStream) {
-			if (audioStream.Codec === 'truehd' && capabilities.truehd) score += 15;
-			else if (audioStream.Codec === 'eac3') score += 10;
+			// Prefer lossless/high-quality audio the TV actually supports
+			if (audioStream.Codec === 'eac3') score += 10;
 			else if (audioStream.Codec === 'ac3') score += 8;
 			else if (audioStream.Channels >= 6) score += 5;
+			// Note: DTS and TrueHD excluded — not supported on Samsung TVs
 		}
 
 		return {source, score, playMethod: playMethodResult};
