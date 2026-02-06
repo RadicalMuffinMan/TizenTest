@@ -139,6 +139,7 @@ const NavBar = ({
 				'genre-browse-grid',
 				'library-letter-hash',
 				'library-grid',
+				'person-grid',
 				'discover-row-0',
 				'jellyseerr-browse-grid',
 				'action-buttons',
