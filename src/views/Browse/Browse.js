@@ -277,13 +277,13 @@ const Browse = ({
 	useEffect(() => {
 		if (isVisible && !wasVisibleRef.current && !isLoading && filteredRows.length > 0) {
 			fetchFreshFeaturedItems();
-			
+
 			setTimeout(() => {
 				if (lastFocusState) {
 					const {rowIndex} = lastFocusState;
 					const targetRowIndex = Math.min(rowIndex, filteredRows.length - 1);
 					Spotlight.focus(`row-${targetRowIndex}`);
-					
+
 					const targetRow = document.querySelector(`[data-row-index="${targetRowIndex}"]`);
 					if (targetRow) {
 						targetRow.scrollIntoView({block: 'center'});

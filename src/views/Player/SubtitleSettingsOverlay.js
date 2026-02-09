@@ -29,6 +29,22 @@ const SubtitleSettingsOverlay = ({ visible, onClose }) => {
         return option ? option.label : 'Unknown';
     };
 
+    // Extracted handlers for cycleOption calls
+    const handleCycleSize = useCallback(() => cycleOption('subtitleSize', SUBTITLE_SIZE_OPTIONS), [cycleOption]);
+    const handleCyclePosition = useCallback(() => cycleOption('subtitlePosition', SUBTITLE_POSITION_OPTIONS), [cycleOption]);
+    const handleCycleColor = useCallback(() => cycleOption('subtitleColor', SUBTITLE_COLOR_OPTIONS), [cycleOption]);
+    const handleCycleShadowColor = useCallback(() => cycleOption('subtitleShadowColor', SUBTITLE_SHADOW_COLOR_OPTIONS), [cycleOption]);
+    const handleCycleBackgroundColor = useCallback(() => cycleOption('subtitleBackgroundColor', SUBTITLE_BACKGROUND_COLOR_OPTIONS), [cycleOption]);
+
+    // Extracted handlers for slider changes
+    const handleAbsolutePositionChange = useCallback((e) => updateSetting('subtitlePositionAbsolute', e.value), [updateSetting]);
+    const handleOpacityChange = useCallback((e) => updateSetting('subtitleOpacity', e.value), [updateSetting]);
+    const handleShadowOpacityChange = useCallback((e) => updateSetting('subtitleShadowOpacity', e.value), [updateSetting]);
+    const handleShadowBlurChange = useCallback((e) => updateSetting('subtitleShadowBlur', e.value), [updateSetting]);
+    const handleBackgroundChange = useCallback((e) => updateSetting('subtitleBackground', e.value), [updateSetting]);
+
+    const handleStopPropagation = useCallback((e) => e.stopPropagation(), []);
+
     // Set initial focus when opening
     useEffect(() => {
         if (visible) {
@@ -44,9 +60,9 @@ const SubtitleSettingsOverlay = ({ visible, onClose }) => {
         <div className={css.trackModal} onClick={onClose}>
             <div
                 className={`${css.modalContent} ${css.settingsModal}`}
-                onClick={(e) => e.stopPropagation()}
+                onClick={handleStopPropagation}
                 data-modal="subtitle-settings"
-                spotlightId="subtitle-settings-container"
+                data-spotlight-id="subtitle-settings-container"
             >
                 <h2 className={css.modalTitle}>Subtitle Appearance</h2>
 
@@ -60,7 +76,7 @@ const SubtitleSettingsOverlay = ({ visible, onClose }) => {
                         <SpottableButton
                             spotlightId="subtitle-settings-size"
                             className={css.settingItem}
-                            onClick={() => cycleOption('subtitleSize', SUBTITLE_SIZE_OPTIONS)}
+                            onClick={handleCycleSize}
                         >
                             <span className={css.settingLabel}>Size</span>
                             <span className={css.settingValue}>{getLabel('subtitleSize', SUBTITLE_SIZE_OPTIONS)}</span>
@@ -70,7 +86,7 @@ const SubtitleSettingsOverlay = ({ visible, onClose }) => {
                         <SpottableButton
                             spotlightId="subtitle-settings-position"
                             className={css.settingItem}
-                            onClick={() => cycleOption('subtitlePosition', SUBTITLE_POSITION_OPTIONS)}
+                            onClick={handleCyclePosition}
                         >
                             <span className={css.settingLabel}>Position</span>
                             <span className={css.settingValue}>{getLabel('subtitlePosition', SUBTITLE_POSITION_OPTIONS)}</span>
@@ -88,7 +104,7 @@ const SubtitleSettingsOverlay = ({ visible, onClose }) => {
                                     max={100}
                                     step={5}
                                     value={settings.subtitlePositionAbsolute}
-                                    onChange={(e) => updateSetting('subtitlePositionAbsolute', e.value)}
+                                    onChange={handleAbsolutePositionChange}
                                     className={css.settingsSlider}
                                     tooltip={false}
                                 />
@@ -106,7 +122,7 @@ const SubtitleSettingsOverlay = ({ visible, onClose }) => {
                                 max={100}
                                 step={5}
                                 value={settings.subtitleOpacity}
-                                onChange={(e) => updateSetting('subtitleOpacity', e.value)}
+                                onChange={handleOpacityChange}
                                 className={css.settingsSlider}
                                 tooltip={false}
                             />
@@ -116,7 +132,7 @@ const SubtitleSettingsOverlay = ({ visible, onClose }) => {
                         <SpottableButton
                             spotlightId="subtitle-settings-color"
                             className={css.settingItem}
-                            onClick={() => cycleOption('subtitleColor', SUBTITLE_COLOR_OPTIONS)}
+                            onClick={handleCycleColor}
                         >
                             <span className={css.settingLabel}>Text Color</span>
                             <span className={css.settingValue}>{getLabel('subtitleColor', SUBTITLE_COLOR_OPTIONS)}</span>
@@ -128,7 +144,7 @@ const SubtitleSettingsOverlay = ({ visible, onClose }) => {
                         <SpottableButton
                             spotlightId="subtitle-settings-shadow-color"
                             className={css.settingItem}
-                            onClick={() => cycleOption('subtitleShadowColor', SUBTITLE_SHADOW_COLOR_OPTIONS)}
+                            onClick={handleCycleShadowColor}
                         >
                             <span className={css.settingLabel}>Shadow Color</span>
                             <span className={css.settingValue}>{getLabel('subtitleShadowColor', SUBTITLE_SHADOW_COLOR_OPTIONS)}</span>
@@ -144,7 +160,7 @@ const SubtitleSettingsOverlay = ({ visible, onClose }) => {
                                 max={100}
                                 step={5}
                                 value={settings.subtitleShadowOpacity}
-                                onChange={(e) => updateSetting('subtitleShadowOpacity', e.value)}
+                                onChange={handleShadowOpacityChange}
                                 className={css.settingsSlider}
                                 tooltip={false}
                             />
@@ -160,7 +176,7 @@ const SubtitleSettingsOverlay = ({ visible, onClose }) => {
                                 max={1}
                                 step={0.1}
                                 value={settings.subtitleShadowBlur}
-                                onChange={(e) => updateSetting('subtitleShadowBlur', e.value)}
+                                onChange={handleShadowBlurChange}
                                 className={css.settingsSlider}
                                 tooltip={false}
                             />
@@ -172,7 +188,7 @@ const SubtitleSettingsOverlay = ({ visible, onClose }) => {
                         <SpottableButton
                             spotlightId="subtitle-settings-background-color"
                             className={css.settingItem}
-                            onClick={() => cycleOption('subtitleBackgroundColor', SUBTITLE_BACKGROUND_COLOR_OPTIONS)}
+                            onClick={handleCycleBackgroundColor}
                         >
                             <span className={css.settingLabel}>Background Color</span>
                             <span className={css.settingValue}>{getLabel('subtitleBackgroundColor', SUBTITLE_BACKGROUND_COLOR_OPTIONS)}</span>
@@ -188,7 +204,7 @@ const SubtitleSettingsOverlay = ({ visible, onClose }) => {
                                 max={100}
                                 step={5}
                                 value={settings.subtitleBackground}
-                                onChange={(e) => updateSetting('subtitleBackground', e.value)}
+                                onChange={handleBackgroundChange}
                                 className={css.settingsSlider}
                                 tooltip={false}
                             />

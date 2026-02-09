@@ -385,42 +385,6 @@ const Details = ({itemId, initialItem, onPlay, onSelectItem, onSelectPerson, onB
 		}
 	}, []);
 
-	// Handle up/down key in cast section to navigate to other sections
-	const handleCastSectionKeyDown = useCallback((ev) => {
-		if (ev.keyCode === 38) { // Up arrow
-			ev.preventDefault();
-			ev.stopPropagation();
-			// Try to focus action buttons first
-			const focused = Spotlight.focus('details-primary-btn');
-			if (!focused) {
-				// Fallback to any element in action buttons area
-				const actionButtons = document.querySelector(`.${css.actionButtons}`);
-				if (actionButtons) {
-					const firstSpottable = actionButtons.querySelector('.spottable');
-					if (firstSpottable) {
-						Spotlight.focus(firstSpottable);
-					}
-				}
-			}
-		} else if (ev.keyCode === 40) { // Down arrow
-			ev.preventDefault();
-			ev.stopPropagation();
-			// Focus similar/more like this section (MediaRow)
-			const sectionsContainer = document.querySelector(`.${css.sectionsContainer}`);
-			if (sectionsContainer) {
-				// Find all MediaRow elements and focus the "More Like This" one
-				const mediaRows = sectionsContainer.querySelectorAll('[class*="row"]');
-				for (const row of mediaRows) {
-					const spottable = row.querySelector('.spottable');
-					if (spottable) {
-						Spotlight.focus(spottable);
-						return;
-					}
-				}
-			}
-		}
-	}, []);
-
 	const handleKeyDown = useCallback((ev) => {
 		if (isBackKey(ev)) {
 			ev.preventDefault();

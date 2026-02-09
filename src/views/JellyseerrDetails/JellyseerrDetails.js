@@ -755,6 +755,7 @@ const JellyseerrDetails = ({mediaType, mediaId, onClose, onSelectItem, onSelectP
 		};
 
 		loadDetails();
+	// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [mediaId, mediaType]);
 
 	useEffect(() => {

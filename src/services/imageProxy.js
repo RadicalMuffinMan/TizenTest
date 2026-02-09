@@ -1,6 +1,6 @@
 /**
  * Image Proxy Service for Tizen
- * 
+ *
  * On Tizen, packaged apps (.wgt) bypass CORS restrictions,
  * so we can fetch images directly without a proxy.
  * This module maintains the same API for compatibility.
@@ -85,7 +85,7 @@ export const proxyImageAsDataUrl = async (url) => {
 		if (!response.ok) return null;
 
 		const blob = await response.blob();
-		
+
 		return new Promise((resolve) => {
 			const reader = new FileReader();
 			reader.onloadend = () => resolve(reader.result);

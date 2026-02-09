@@ -1,7 +1,7 @@
 /**
  * Tizen Video Service - Hardware-accelerated video playback using AVPlay APIs
  */
-/* global webapis, tizen */
+/* global webapis */
 import {detectTizenVersion as _detectTizenVersion} from './deviceProfile';
 
 let isAVPlayAvailable = false;
@@ -428,14 +428,14 @@ export const avplaySetSilentSubtitle = (silent) => {
 /**
  * Release hardware video resources and reset HDR display mode.
  * Critical on Tizen due to limited hardware decoder instances.
- * 
+ *
  * Samsung Tizen TVs automatically enter HDR mode when HDR content plays
  * through the HTML5 <video> element. To force the TV back to SDR mode
  * after playback stops, we must:
  * 1. Pause the HDR video
  * 2. Load a minimal SDR video (base64 1x1 h264) to switch the decoder pipeline to SDR
  * 3. Clear the source entirely and call load() to release the decoder
- * 
+ *
  * Without step 2, the TV may remain stuck in HDR mode on the home screen.
  */
 

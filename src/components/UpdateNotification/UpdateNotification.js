@@ -92,10 +92,12 @@ const UpdateNotification = ({updateInfo, formattedNotes, onDismiss}) => {
 						direction="vertical"
 						focusableScrollbar
 					>
+						{/* eslint-disable react/no-danger */}
 						<div
 							className={css.notes}
 							dangerouslySetInnerHTML={{__html: htmlNotes}}
 						/>
+						{/* eslint-enable react/no-danger */}
 					</Scroller>
 
 					<div className={css.buttons}>

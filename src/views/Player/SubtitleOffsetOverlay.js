@@ -40,15 +40,17 @@ const SubtitleOffsetOverlay = ({ visible, currentOffset, onClose, onOffsetChange
         onOffsetChange(0);
     }, [onOffsetChange]);
 
+    const handleStopPropagation = useCallback((e) => e.stopPropagation(), []);
+
     if (!visible) return null;
 
     return (
         <div className={css.trackModal} onClick={onClose}>
             <div
                 className={`${css.modalContent} ${css.offsetModal}`}
-                onClick={(e) => e.stopPropagation()}
+                onClick={handleStopPropagation}
                 data-modal="subtitle-offset"
-                spotlightId="subtitle-offset-container"
+                data-spotlight-id="subtitle-offset-container"
             >
                 <h2 className={css.modalTitle}>Subtitle Offset</h2>
 

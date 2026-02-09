@@ -237,6 +237,19 @@ const AppContent = (props) => {
 		}
 	}, [isAuthenticated]);
 
+	const navigateTo = useCallback((panel, addToHistory = true) => {
+		if (addToHistory && panelIndex !== PANELS.LOGIN) {
+			setPanelHistory(prev => {
+				const newHistory = [...prev, panelIndex];
+				if (newHistory.length > MAX_HISTORY_LENGTH) {
+					return newHistory.slice(-MAX_HISTORY_LENGTH);
+				}
+				return newHistory;
+			});
+		}
+		setPanelIndex(panel);
+	}, [panelIndex]);
+
 	// Handle Smart Hub deep link navigation
 	useEffect(() => {
 		const handleDeepLink = (e) => {
@@ -252,23 +265,10 @@ const AppContent = (props) => {
 		return () => window.removeEventListener('moonfin:deepLink', handleDeepLink);
 	}, [isAuthenticated, navigateTo]);
 
-		// Register Tizen TV keys on mount
+	// Register Tizen TV keys on mount
 	useEffect(() => {
 		registerKeys(ESSENTIAL_KEY_NAMES);
 	}, []);
-
-	const navigateTo = useCallback((panel, addToHistory = true) => {
-		if (addToHistory && panelIndex !== PANELS.LOGIN) {
-			setPanelHistory(prev => {
-				const newHistory = [...prev, panelIndex];
-				if (newHistory.length > MAX_HISTORY_LENGTH) {
-					return newHistory.slice(-MAX_HISTORY_LENGTH);
-				}
-				return newHistory;
-			});
-		}
-		setPanelIndex(panel);
-	}, [panelIndex]);
 
 	const handleBack = useCallback(() => {
 		if (panelIndex === PANELS.ADD_SERVER || panelIndex === PANELS.ADD_USER) {
@@ -332,10 +332,10 @@ const AppContent = (props) => {
 		try {
 			// Convert setting value to API format
 			const contentType = settings.shuffleContentType || 'both';
-			const includeItemTypes = contentType === 'movies' ? 'Movie' 
+			const includeItemTypes = contentType === 'movies' ? 'Movie'
 				: contentType === 'tv' ? 'Series'
 				: 'Movie,Series';
-			
+
 			let item;
 			if (unifiedMode) {
 				// Get random items from all servers
@@ -349,7 +349,7 @@ const AppContent = (props) => {
 					item = result.Items[0];
 				}
 			}
-			
+
 			if (item) {
 				setSelectedItem(item);
 				navigateTo(PANELS.DETAILS);

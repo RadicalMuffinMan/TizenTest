@@ -7,7 +7,7 @@ import Scroller from '@enact/sandstone/Scroller';
 import * as playback from '../../services/playback';
 import {initTizenAPI, registerAppStateObserver, keepScreenOn, cleanupVideoElement, avplaySelectTrack, avplaySetSilentSubtitle} from '../../services/tizenVideo';
 import {useSettings} from '../../context/SettingsContext';
-import {TIZEN_KEYS, isBackKey, isPlayPauseKey} from '../../utils/tizenKeys';
+import {TIZEN_KEYS, isBackKey} from '../../utils/tizenKeys';
 import TrickplayPreview from '../../components/TrickplayPreview';
 import SubtitleOffsetOverlay from './SubtitleOffsetOverlay';
 import SubtitleSettingsOverlay from './SubtitleSettingsOverlay';
@@ -93,21 +93,15 @@ const IconSubtitle = () => (
 	</svg>
 );
 
-const IconPlayMode = () => (
-	<svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="currentColor">
-		<path d="M170-228q-38-44-61-98T80-440h82q6 44 22 83.5t42 72.5l-56 56ZM80-520q8-60 30-114t60-98l56 56q-26 33-42 72.5T162-520H80ZM438-82q-60-6-113.5-29T226-170l56-58q35 26 73.5 43t82.5 23v80ZM284-732l-58-58q45-36 98.5-59T440-878v80q-45 6-84 23t-72 43Zm96 432v-360l280 180-280 180ZM520-82v-80q121-17 200.5-107T800-480q0-121-79.5-211T520-798v-80q154 17 257 130t103 268q0 155-103 268T520-82Z"/>
-	</svg>
-);
-
 const IconAudio = () => (
 	<svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="currentColor">
 		<path d="M400-120q-66 0-113-47t-47-113q0-66 47-113t113-47q23 0 42.5 5.5T480-418v-422h240v160H560v400q0 66-47 113t-113 47Z"/>
 	</svg>
 );
 
-const IconChapters = () => (
+const IconNext = () => (
 	<svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="currentColor">
-		<path d="m160-800 80 160h120l-80-160h80l80 160h120l-80-160h80l80 160h120l-80-160h120q33 0 56.5 23.5T880-720v480q0 33-23.5 56.5T800-160H160q-33 0-56.5-23.5T80-240v-480q0-33 23.5-56.5T160-800Zm0 240v320h640v-320H160Zm0 0v320-320Z"/>
+		<path d="M660-240v-480h80v480h-80Zm-440 0v-480l360 240-360 240Zm80-240Zm0 90 136-90-136-90v180Z"/>
 	</svg>
 );
 
@@ -117,9 +111,9 @@ const IconPrevious = () => (
 	</svg>
 );
 
-const IconNext = () => (
+const IconChapters = () => (
 	<svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="currentColor">
-		<path d="M660-240v-480h80v480h-80Zm-440 0v-480l360 240-360 240Zm80-240Zm0 90 136-90-136-90v180Z"/>
+		<path d="m160-800 80 160h120l-80-160h80l80 160h120l-80-160h80l80 160h120l-80-160h120q33 0 56.5 23.5T880-720v480q0 33-23.5 56.5T800-160H160q-33 0-56.5-23.5T80-240v-480q0-33 23.5-56.5T160-800Zm0 240v320h640v-320H160Zm0 0v320-320Z"/>
 	</svg>
 );
 
@@ -145,7 +139,6 @@ const Player = ({item, onEnded, onBack, onPlayNext, initialAudioIndex, initialSu
 	const {settings} = useSettings();
 
 	const [mediaUrl, setMediaUrl] = useState(null);
-	const [mimeType, setMimeType] = useState('video/mp4');
 	const [isLoading, setIsLoading] = useState(true);
 	const [isBuffering, setIsBuffering] = useState(false);
 	const [error, setError] = useState(null);
@@ -160,7 +153,6 @@ const Player = ({item, onEnded, onBack, onPlayNext, initialAudioIndex, initialSu
 	const [chapters, setChapters] = useState([]);
 	const [selectedAudioIndex, setSelectedAudioIndex] = useState(null);
 	const [selectedSubtitleIndex, setSelectedSubtitleIndex] = useState(-1);
-	const [subtitleUrl, setSubtitleUrl] = useState(null);
 	const [subtitleTrackEvents, setSubtitleTrackEvents] = useState(null);
 	const [subtitleOffset, setSubtitleOffset] = useState(0);
 	const [currentSubtitleText, setCurrentSubtitleText] = useState(null);
@@ -256,7 +248,6 @@ const Player = ({item, onEnded, onBack, onPlayNext, initialAudioIndex, initialSu
 				});
 
 				setMediaUrl(result.url);
-				setMimeType(result.mimeType || 'video/mp4');
 				setPlayMethod(result.playMethod);
 				setMediaSourceId(result.mediaSourceId);
 				playSessionRef.current = result.playSessionId;
@@ -315,33 +306,28 @@ const Player = ({item, onEnded, onBack, onPlayNext, initialAudioIndex, initialSu
 						const initialSub = result.subtitleStreams?.find(s => s.index === initialSubtitleIndex);
 						if (initialSub) {
 							setSelectedSubtitleIndex(initialSubtitleIndex);
-							setSubtitleUrl(playback.getSubtitleUrl(initialSub));
 							await loadSubtitleData(initialSub);
 						}
 					} else {
 						// -1 means subtitles off
 						setSelectedSubtitleIndex(-1);
-						setSubtitleUrl(null);
 						setSubtitleTrackEvents(null);
 					}
 				} else if (settings.subtitleMode === 'always') {
 					const defaultSub = result.subtitleStreams?.find(s => s.isDefault);
 					if (defaultSub) {
 						setSelectedSubtitleIndex(defaultSub.index);
-						setSubtitleUrl(playback.getSubtitleUrl(defaultSub));
 						await loadSubtitleData(defaultSub);
 					} else if (result.subtitleStreams?.length > 0) {
 						// No default marked, use first available
 						const firstSub = result.subtitleStreams[0];
 						setSelectedSubtitleIndex(firstSub.index);
-						setSubtitleUrl(playback.getSubtitleUrl(firstSub));
 						await loadSubtitleData(firstSub);
 					}
 				} else if (settings.subtitleMode === 'forced') {
 					const forcedSub = result.subtitleStreams?.find(s => s.isForced);
 					if (forcedSub) {
 						setSelectedSubtitleIndex(forcedSub.index);
-						setSubtitleUrl(playback.getSubtitleUrl(forcedSub));
 						await loadSubtitleData(forcedSub);
 					}
 				}
@@ -379,6 +365,7 @@ const Player = ({item, onEnded, onBack, onPlayNext, initialAudioIndex, initialSu
 
 		loadMedia();
 
+		const videoElement = videoRef.current;
 		return () => {
 			// Report stop to server with current position
 			// This ensures the playback position is saved even if user exits unexpectedly
@@ -388,7 +375,7 @@ const Player = ({item, onEnded, onBack, onPlayNext, initialAudioIndex, initialSu
 
 			playback.stopProgressReporting();
 			playback.stopHealthMonitoring();
-			cleanupVideoElement(videoRef.current);
+			cleanupVideoElement(videoElement);
 
 			if (nextEpisodeTimerRef.current) {
 				clearInterval(nextEpisodeTimerRef.current);
@@ -397,6 +384,7 @@ const Player = ({item, onEnded, onBack, onPlayNext, initialAudioIndex, initialSu
 				clearTimeout(controlsTimeoutRef.current);
 			}
 		};
+	// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [item, selectedQuality, settings.maxBitrate, settings.preferTranscode, settings.subtitleMode, settings.skipIntro]);
 
 	// Controls auto-hide
@@ -541,7 +529,7 @@ const Player = ({item, onEnded, onBack, onPlayNext, initialAudioIndex, initialSu
 				}
 			}
 		}
-	}, [mediaSegments, settings.skipIntro, settings.skipCredits, settings.autoPlay, nextEpisode, showSkipCredits, showNextEpisode, startNextEpisodeCountdown, handlePlayNextEpisode, subtitleTrackEvents, subtitleOffset]);
+	}, [mediaSegments, settings.skipIntro, nextEpisode, showSkipCredits, showNextEpisode, startNextEpisodeCountdown, subtitleTrackEvents, subtitleOffset]);
 
 	const handleWaiting = useCallback(() => {
 		setIsBuffering(true);
@@ -706,7 +694,6 @@ const Player = ({item, onEnded, onBack, onPlayNext, initialAudioIndex, initialSu
 
 				setMediaUrl(newUrl);
 				if (result.playMethod) setPlayMethod(result.playMethod);
-				if (result.mimeType) setMimeType(result.mimeType);
 			}
 		} catch (err) {
 			console.error('[Player] Failed to change audio:', err);
@@ -718,14 +705,12 @@ const Player = ({item, onEnded, onBack, onPlayNext, initialAudioIndex, initialSu
 		if (isNaN(index)) return;
 		if (index === -1) {
 			setSelectedSubtitleIndex(-1);
-			setSubtitleUrl(null);
 			setSubtitleTrackEvents(null);
 			setCurrentSubtitleText(null);
 			avplaySetSilentSubtitle(true); // hide native subs when turning off
 		} else {
 			setSelectedSubtitleIndex(index);
 			const stream = subtitleStreams.find(s => s.index === index);
-			setSubtitleUrl(stream ? playback.getSubtitleUrl(stream) : null);
 
 			if (stream && stream.isEmbeddedNative) {
 				// Use AVPlay's native track selection for embedded SRT
@@ -863,6 +848,22 @@ const Player = ({item, onEnded, onBack, onPlayNext, initialAudioIndex, initialSu
 	const stopPropagation = useCallback((e) => {
 		e.stopPropagation();
 	}, []);
+
+	// Extracted handlers for subtitle modal navigation
+	const handleSubtitleItemKeyDown = useCallback((e) => {
+		if (e.keyCode === 39) { // Right -> Appearance
+			e.preventDefault();
+			e.stopPropagation();
+			Spotlight.focus('btn-subtitle-appearance');
+		} else if (e.keyCode === 37) { // Left -> Offset
+			e.preventDefault();
+			e.stopPropagation();
+			Spotlight.focus('btn-subtitle-offset');
+		}
+	}, []);
+
+	const handleOpenSubtitleOffset = useCallback(() => openModal('subtitleOffset'), [openModal]);
+	const handleOpenSubtitleSettings = useCallback(() => openModal('subtitleSettings'), [openModal]);
 
 	// Global key handler
 	useEffect(() => {
@@ -1007,7 +1008,7 @@ const Player = ({item, onEnded, onBack, onPlayNext, initialAudioIndex, initialSu
 	// Focus appropriate element when focusRow changes
 	useEffect(() => {
 		if (!controlsVisible) return;
-		
+
 		// Small delay to ensure elements are rendered
 		const timer = setTimeout(() => {
 			if (focusRow === 'progress') {
@@ -1016,7 +1017,7 @@ const Player = ({item, onEnded, onBack, onPlayNext, initialAudioIndex, initialSu
 				Spotlight.focus('bottom-row-default');
 			}
 		}, 50);
-		
+
 		return () => clearTimeout(timer);
 	}, [focusRow, controlsVisible]);
 
@@ -1074,6 +1075,7 @@ const Player = ({item, onEnded, onBack, onPlayNext, initialAudioIndex, initialSu
 						opacity: (settings.subtitleOpacity || 100) / 100
 					}}
 				>
+				{/* eslint-disable react/no-danger */}
 					<div
 						className={css.subtitleText}
 						style={{
@@ -1089,6 +1091,7 @@ const Player = ({item, onEnded, onBack, onPlayNext, initialAudioIndex, initialSu
 								.replace(/{\\.*?}/gi, '') // Remove ASS/SSA style tags
 						}}
 					/>
+					{/* eslint-enable react/no-danger */}
 				</div>
 			)}
 
@@ -1257,17 +1260,7 @@ const Player = ({item, onEnded, onBack, onPlayNext, initialAudioIndex, initialSu
 								data-index={-1}
 								data-selected={selectedSubtitleIndex === -1 ? 'true' : undefined}
 								onClick={handleSelectSubtitle}
-								onKeyDown={(e) => {
-									if (e.keyCode === 39) { // Right -> Appearance
-										e.preventDefault();
-										e.stopPropagation();
-										Spotlight.focus('btn-subtitle-appearance');
-									} else if (e.keyCode === 37) { // Left -> Offset
-										e.preventDefault();
-										e.stopPropagation();
-										Spotlight.focus('btn-subtitle-offset');
-									}
-								}}
+								onKeyDown={handleSubtitleItemKeyDown}
 							>
 								<span className={css.trackName}>Off</span>
 							</SpottableButton>
@@ -1278,17 +1271,7 @@ const Player = ({item, onEnded, onBack, onPlayNext, initialAudioIndex, initialSu
 									data-index={stream.index}
 									data-selected={stream.index === selectedSubtitleIndex ? 'true' : undefined}
 									onClick={handleSelectSubtitle}
-									onKeyDown={(e) => {
-										if (e.keyCode === 39) { // Right -> Appearance
-											e.preventDefault();
-											e.stopPropagation();
-											Spotlight.focus('btn-subtitle-appearance');
-										} else if (e.keyCode === 37) { // Left -> Offset
-											e.preventDefault();
-											e.stopPropagation();
-											Spotlight.focus('btn-subtitle-offset');
-										}
-									}}
+									onKeyDown={handleSubtitleItemKeyDown}
 								>
 									<span className={css.trackName}>{stream.displayTitle}</span>
 									{stream.isForced && <span className={css.trackInfo}>Forced</span>}
@@ -1296,10 +1279,10 @@ const Player = ({item, onEnded, onBack, onPlayNext, initialAudioIndex, initialSu
 							))}
 						</div>
 						<p className={css.modalFooter}>
-							<SpottableButton spotlightId="btn-subtitle-offset" className={css.actionBtn} onClick={() => openModal('subtitleOffset')}>Offset</SpottableButton>
-							<SpottableButton spotlightId="btn-subtitle-appearance" className={css.actionBtn} onClick={() => openModal('subtitleSettings')} style={{ marginLeft: 15 }}>Appearance</SpottableButton>
+							<SpottableButton spotlightId="btn-subtitle-offset" className={css.actionBtn} onClick={handleOpenSubtitleOffset}>Offset</SpottableButton>
+							<SpottableButton spotlightId="btn-subtitle-appearance" className={css.actionBtn} onClick={handleOpenSubtitleSettings} style={{marginLeft: 15}}>Appearance</SpottableButton>
 						</p>
-						<p className={css.modalFooter} style={{ marginTop: 5, fontSize: 14, opacity: 0.5 }}>Press BACK to close</p>
+						<p className={css.modalFooter} style={{marginTop: 5, fontSize: 14, opacity: 0.5}}>Press BACK to close</p>
 					</ModalContainer>
 				</div>
 			)}

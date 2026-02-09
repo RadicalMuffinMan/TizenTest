@@ -4,7 +4,7 @@ import SpotlightContainerDecorator from '@enact/spotlight/SpotlightContainerDeco
 import Spotlight from '@enact/spotlight';
 import {useAuth} from '../../context/AuthContext';
 import LoadingSpinner from '../../components/LoadingSpinner';
-import {isBackKey, TIZEN_KEYS} from '../../utils/tizenKeys';
+import {isBackKey} from '../../utils/tizenKeys';
 
 import css from './LiveTV.module.less';
 
@@ -194,7 +194,7 @@ const LiveTV = ({onPlayChannel, onBack, onRecordings}) => {
 					Spotlight.focus('navbar');
 					return;
 				}
-				
+
 				const guideContent = guideContentRef.current;
 				if (guideContent && guideContent.scrollTop < 50) {
 					const programCell = focused?.closest('[data-program-id]');

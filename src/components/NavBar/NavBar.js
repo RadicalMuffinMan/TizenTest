@@ -13,7 +13,7 @@ const NavContainer = SpotlightContainerDecorator({
 	enterTo: 'last-focused',
 	defaultElement: '.spottable-default',
 	preserveId: true,
-	navigationDisabled: (dir, spotlightId) => 
+	navigationDisabled: (dir, spotlightId) =>
 		dir === 'right' && spotlightId === 'navbar-settings'
 }, 'nav');
 
@@ -48,7 +48,7 @@ const NavBar = ({
 			const now = new Date();
 			let hours = now.getHours();
 			const minutes = now.getMinutes().toString().padStart(2, '0');
-			
+
 			if (settings.clockDisplay === '12-hour') {
 				const ampm = hours >= 12 ? 'PM' : 'AM';
 				hours = hours % 12 || 12;
@@ -146,11 +146,11 @@ const NavBar = ({
 	const handleLibrariesBlur = useCallback((e) => {
 		const container = e.currentTarget;
 		const relatedTarget = e.relatedTarget;
-		
+
 		if (relatedTarget && container.contains(relatedTarget)) {
 			return;
 		}
-		
+
 		librariesTimeoutRef.current = setTimeout(() => {
 			setLibrariesExpanded(false);
 		}, 100);
