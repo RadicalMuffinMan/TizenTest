@@ -227,7 +227,7 @@ export const api = {
 			default:
 				includeTypes = 'Movie,Series';
 		}
-		return request(`/Users/${currentUser}/Items?IncludeItemTypes=${includeTypes}&Recursive=true&SortBy=Random&Limit=${limit}&Fields=PrimaryImageAspectRatio,Overview,Genres&HasBackdrop=true&ExcludeItemTypes=BoxSet`);
+		return request(`/Users/${currentUser}/Items?IncludeItemTypes=${includeTypes}&Recursive=true&SortBy=Random&Limit=${limit}&Fields=PrimaryImageAspectRatio,Overview,Genres,ProviderIds&HasBackdrop=true&ExcludeItemTypes=BoxSet`);
 	},
 
 	// Get all movies and series for genres page
@@ -421,7 +421,7 @@ export const createApiForServer = (serverUrl, token, userId) => {
 				default:
 					includeTypes = 'Movie,Series';
 			}
-			return serverRequest(`/Users/${userId}/Items?IncludeItemTypes=${includeTypes}&Recursive=true&SortBy=Random&Limit=${limit}&Fields=PrimaryImageAspectRatio,Overview,Genres&HasBackdrop=true&ExcludeItemTypes=BoxSet`);
+			return serverRequest(`/Users/${userId}/Items?IncludeItemTypes=${includeTypes}&Recursive=true&SortBy=Random&Limit=${limit}&Fields=PrimaryImageAspectRatio,Overview,Genres,ProviderIds&HasBackdrop=true&ExcludeItemTypes=BoxSet`);
 		},
 
 		getRandomItem: (includeTypes = 'Movie,Series') =>
