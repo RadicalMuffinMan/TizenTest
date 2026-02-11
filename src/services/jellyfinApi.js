@@ -117,6 +117,8 @@ export const api = {
 
 	getLibraries: () => request(`/Users/${currentUser}/Views`),
 
+	getAllLibraries: () => request(`/Users/${currentUser}/Views?IncludeHidden=true`),
+
 	getItems: (params = {}) => {
 		// Manually build query string to avoid URLSearchParams issues
 		const queryParts = [];
@@ -132,6 +134,11 @@ export const api = {
 	getItem: (itemId) => request(`/Users/${currentUser}/Items/${itemId}`),
 
 	getUserConfiguration: () => request(`/Users/${currentUser}`),
+
+	updateUserConfiguration: (config) => request(`/Users/${currentUser}/Configuration`, {
+		method: 'POST',
+		body: config
+	}),
 
 	getLatest: (libraryId, limit = 20) =>
 		request(`/Users/${currentUser}/Items/Latest?ParentId=${libraryId}&Limit=${limit}&Fields=Overview,Genres,OfficialRating,ImageTags,ParentLogoImageTag&ImageTypeLimit=1&GroupItems=true`),
@@ -344,6 +351,15 @@ export const createApiForServer = (serverUrl, token, userId) => {
 	return {
 		getLibraries: () =>
 			serverRequest(`/Users/${userId}/Views`),
+
+		getAllLibraries: () => serverRequest(`/Users/${userId}/Views?IncludeHidden=true`),
+
+		getUserConfiguration: () => serverRequest(`/Users/${userId}`),
+
+		updateUserConfiguration: (config) => serverRequest(`/Users/${userId}/Configuration`, {
+			method: 'POST',
+			body: config
+		}),
 
 		getItem: (itemId) =>
 			serverRequest(`/Users/${userId}/Items/${itemId}?Fields=Overview,Genres,People,Studios,MediaSources,MediaStreams,ExternalUrls,ProviderIds,RemoteTrailers,Taglines`),
