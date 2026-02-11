@@ -20,6 +20,7 @@ import {JellyseerrProvider} from '../context/JellyseerrContext';
 import {useVersionCheck} from '../hooks/useVersionCheck';
 import UpdateNotification from '../components/UpdateNotification';
 import NavBar from '../components/NavBar';
+import AccountModal from '../components/AccountModal';
 import LoadingSpinner from '../components/LoadingSpinner';
 import {registerKeys, ESSENTIAL_KEY_NAMES, isBackKey, TIZEN_KEYS} from '../utils/tizenKeys';
 import Login from '../views/Login';
@@ -94,6 +95,7 @@ const AppContent = (props) => {
 	const [jellyseerrPerson, setJellyseerrPerson] = useState(null);
 	const [authChecked, setAuthChecked] = useState(false);
 	const [libraries, setLibraries] = useState([]);
+	const [showAccountModal, setShowAccountModal] = useState(false);
 	const cleanupHandlersRef = useRef(null);
 	const backHandlerRef = useRef(null);
 	const detailsItemStackRef = useRef([]);
@@ -299,7 +301,11 @@ const AppContent = (props) => {
 			// Handle back button (10009 = Tizen BACK, 27 = Escape, 8 = Backspace)
 			if (isBackKey(e)) {
 				e.preventDefault();
-				e.stopPropagation();
+				
+				if (showAccountModal) {
+					setShowAccountModal(false);
+					return;
+				}
 
 				if (panelIndex === PANELS.BROWSE || panelIndex === PANELS.LOGIN) {
 					// At root level let the platform handle back (closes/minimizes app)
@@ -342,7 +348,7 @@ const AppContent = (props) => {
 
 		window.addEventListener('keydown', handleKeyDown, true);
 		return () => window.removeEventListener('keydown', handleKeyDown, true);
-	}, [panelIndex, handleBack, performAppCleanup]);
+	}, [panelIndex, handleBack, performAppCleanup, showAccountModal]);
 
 	const handleLoggedIn = useCallback(() => {
 		setPanelHistory([]);
@@ -428,6 +434,14 @@ const AppContent = (props) => {
 	const handleOpenSettings = useCallback(() => {
 		navigateTo(PANELS.SETTINGS);
 	}, [navigateTo]);
+
+	const handleOpenAccountModal = useCallback(() => {
+		setShowAccountModal(true);
+	}, []);
+
+	const handleCloseAccountModal = useCallback(() => {
+		setShowAccountModal(false);
+	}, []);
 
 	const handleOpenFavorites = useCallback(() => {
 		navigateTo(PANELS.FAVORITES);
@@ -586,7 +600,7 @@ const AppContent = (props) => {
 					onDiscover={handleOpenJellyseerr}
 					onSettings={handleOpenSettings}
 					onSelectLibrary={handleSelectLibrary}
-					onUserMenu={handleOpenSettings}
+					onUserMenu={handleOpenAccountModal}
 				/>
 			)}
 			<Suspense fallback={<PanelLoader />}>
@@ -629,7 +643,7 @@ const AppContent = (props) => {
 					</Panel>
 					<Panel>
 						{panelIndex === PANELS.SETTINGS && (
-							<Settings onBack={handleBack} onLogout={handleSwitchUser} onAddServer={handleAddServer} onAddUser={handleAddUser} onLibrariesChanged={fetchLibraries} />
+							<Settings onBack={handleBack} onLibrariesChanged={fetchLibraries} />
 						)}
 					</Panel>
 					<Panel>
@@ -758,6 +772,13 @@ const AppContent = (props) => {
 					</Panel>
 				</Panels>
 			</Suspense>
+			<AccountModal
+				open={showAccountModal}
+				onClose={handleCloseAccountModal}
+				onLogout={handleSwitchUser}
+				onAddServer={handleAddServer}
+				onAddUser={handleAddUser}
+			/>
 			<UpdateNotification
 				updateInfo={updateInfo}
 				formattedNotes={formattedNotes}
