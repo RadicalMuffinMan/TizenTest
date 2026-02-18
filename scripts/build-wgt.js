@@ -280,10 +280,27 @@ async function main() {
   if (wantsSign) packageCmd += ` -s "${profile}"`;
   packageCmd += ` -- "${DIST}"`;
 
-  if (!run(packageCmd)) {
-    error('Packaging failed!');
-    process.exit(1);
+if (!run(packageCmd)) {
+  error('Packaging failed!');
+
+  // Dump Tizen CLI log (this is where the real error is)
+  try {
+    const cliLogDir = path.join(process.env.HOME || '', 'tizen-studio-data', 'cli', 'logs');
+    const logPath = path.join(cliLogDir, 'cli.log');
+    if (fs.existsSync(logPath)) {
+      console.log('\n===== TIZEN CLI LOG (tail) =====');
+      const content = fs.readFileSync(logPath, 'utf8');
+      console.log(content.split('\n').slice(-200).join('\n'));
+      console.log('===== END TIZEN CLI LOG =====\n');
+    } else {
+      warn(`No cli.log found at ${logPath}`);
+    }
+  } catch (e) {
+    warn(`Failed to read cli.log: ${e.message}`);
   }
+
+  process.exit(1);
+}
 
   // The CLI will place the .wgt in/near DIST in most setups, but to be safe search both.
   const candidates = []
