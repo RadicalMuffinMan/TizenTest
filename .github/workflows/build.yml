@@ -1,4 +1,4 @@
-name: Build Tizen WGT (CI)
+name: Build Tizen WGT (Enact)
 
 on:
   push:
@@ -7,98 +7,129 @@ on:
     branches: [master]
   workflow_dispatch:
 
-permissions:
-  contents: read
-
 jobs:
-  build:
+  wgt:
     runs-on: ubuntu-22.04
-
     strategy:
+      fail-fast: false
       matrix:
         node: [18, 20]
+        tizen: ["5.6"]
+
+    permissions:
+      contents: read
 
     steps:
-      - name: Checkout repo
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
-          cache: npm
+          cache: "npm"
+          cache-dependency-path: package-lock.json
 
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "11"
-
-      - name: Install system dependencies
+      - name: Install OS dependencies (Tizen Studio prerequisites)
+        shell: bash
         run: |
+          set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y curl unzip zip cpio rpm2cpio libwebkitgtk-1.0-0
+          sudo apt-get install -y curl unzip zip cpio rpm2cpio
+          # Legacy webkitgtk is documented; on newer Ubuntu it may not exist.
+          sudo apt-get install -y libwebkitgtk-1.0-0 || sudo apt-get install -y libwebkit2gtk-4.0-37
 
       - name: Cache Tizen Studio Web CLI
         id: cache-tizen
         uses: actions/cache@v4
         with:
           path: ~/tizen-studio
-          key: tizen-web-cli-5.6-${{ runner.os }}
+          key: tizen-studio-web-cli-${{ matrix.tizen }}-${{ runner.os }}
 
-      - name: Install Tizen Web CLI
+      - name: Install Tizen Studio Web CLI
         if: steps.cache-tizen.outputs.cache-hit != 'true'
+        shell: bash
         run: |
-          curl -L -o web-cli.bin \
-            https://download.tizen.org/sdk/Installer/tizen-studio_5.6/web-cli_Tizen_Studio_5.6_ubuntu-64.bin
-          chmod +x web-cli.bin
-          ./web-cli.bin --accept-license --no-java-check "$HOME/tizen-studio"
+          set -euo pipefail
+          curl -L -o tizen-installer.bin \
+            "https://download.tizen.org/sdk/Installer/tizen-studio_${{ matrix.tizen }}/web-cli_Tizen_Studio_${{ matrix.tizen }}_ubuntu-64.bin"
+          chmod +x tizen-installer.bin
+          ./tizen-installer.bin --accept-license "$HOME/tizen-studio"
 
       - name: Add Tizen CLI to PATH
+        shell: bash
         run: |
-          echo "$HOME/tizen-studio/tools/ide/bin" >> $GITHUB_PATH
-          echo "$HOME/tizen-studio/tools" >> $GITHUB_PATH
-
-      - name: Verify Tizen install
-        run: |
-          which tizen
+          set -euo pipefail
+          echo "$HOME/tizen-studio/tools/ide/bin" >> "$GITHUB_PATH"
+          echo "$HOME/tizen-studio/tools" >> "$GITHUB_PATH"
           tizen version
 
-      - name: Configure signing profile
+      - name: Configure signing profile (no-op if secrets missing)
+        id: signing
+        shell: bash
         env:
           TIZEN_AUTHOR_P12_B64: ${{ secrets.TIZEN_AUTHOR_P12_B64 }}
           TIZEN_AUTHOR_P12_PASSWORD: ${{ secrets.TIZEN_AUTHOR_P12_PASSWORD }}
+          TIZEN_PROFILE_NAME: ${{ secrets.TIZEN_PROFILE_NAME }}
         run: |
-          set -eux
+          set -euo pipefail
+          if [[ -z "${TIZEN_AUTHOR_P12_B64:-}" || -z "${TIZEN_AUTHOR_P12_PASSWORD:-}" ]]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
 
-          mkdir -p "$HOME/tizen-studio-data/ide/keystore"
+          PROFILE="${TIZEN_PROFILE_NAME:-MoonfinCI}"
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+          echo "profile=$PROFILE" >> "$GITHUB_OUTPUT"
 
-          echo "$TIZEN_AUTHOR_P12_B64" | base64 -d > "$HOME/tizen-studio-data/ide/keystore/author.p12"
+          # Fresh per-run data dir; do NOT cache ~/tizen-studio-data (contains secrets).
+          mkdir -p "$HOME/tizen-studio-data/keystore/author" "$HOME/tizen-studio-data/ide/keystore"
 
+          echo "$TIZEN_AUTHOR_P12_B64" | base64 -d > "$HOME/tizen-studio-data/keystore/author/author.p12"
+          chmod 600 "$HOME/tizen-studio-data/keystore/author/author.p12"
+
+          # Point CLI at profiles.xml and register profile.
           tizen cli-config -g "default.profiles.path=$HOME/tizen-studio-data/ide/keystore/profiles.xml"
-
-          tizen security-profiles add \
-            -n MoonfinCI \
-            -a "$HOME/tizen-studio-data/ide/keystore/author.p12" \
+          tizen security-profiles add -n "$PROFILE" \
+            -a "$HOME/tizen-studio-data/keystore/author/author.p12" \
             -p "$TIZEN_AUTHOR_P12_PASSWORD"
 
           tizen security-profiles list
 
-      - name: Install dependencies
-        run: npm install
+      - name: Install Node dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --force
 
-      - name: Build Enact dist
-        run: npm run pack -p
+      - name: Build Enact (production dist/)
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run pack-p
 
-      - name: Build WGT
+      - name: Build WGT (signed when secrets present)
+        shell: bash
         env:
-          TIZEN_SIGN_PROFILE: MoonfinCI
-        run: npm run build
+          TIZEN_SIGN_PROFILE: ${{ steps.signing.outputs.profile }}
+        run: |
+          set -euo pipefail
+          if [[ "${{ steps.signing.outputs.enabled }}" == "true" ]]; then
+            node scripts/build-wgt.js --skip-pack --signed
+          else
+            node scripts/build-wgt.js --skip-pack
+          fi
+
+      - name: Read version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
 
       - name: Upload WGT artifact
         uses: actions/upload-artifact@v4
         with:
-          name: moonfin-wgt-${{ matrix.node }}
-          path: |
-            build/*.wgt
-            *.wgt
+          name: Moonfin-Tizen-v${{ steps.version.outputs.version }}-node${{ matrix.node }}-tizen${{ matrix.tizen }}
+          path: build/*.wgt
+          if-no-files-found: error
