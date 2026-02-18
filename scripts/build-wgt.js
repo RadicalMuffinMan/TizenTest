@@ -263,48 +263,49 @@ async function main() {
 	});
 	
 	// Step 7: Package WGT
-	log(`Packaging ${isSigned ? 'signed' : 'unsigned'} .wgt...`);
-	
-	const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
-	const version = pkg.version || '0.0.0';
-	const wgtName = `Moonfin-v${version}.wgt`;
-	
-	let packageCmd;
-	const signProfile = process.env.TIZEN_SIGN_PROFILE;
-	if (isSigned || signProfile) {
-		// Use an explicit signing profile (from --signed flag or TIZEN_SIGN_PROFILE env var)
-		const profile = signProfile || 'default';
-		packageCmd = `"${tizenCLI}" package -t wgt --sign "${profile}" -- "${DIST}" -o "${ROOT}"`;
-	} else {
-		// Package without explicit profile (uses active profile)
-		packageCmd = `"${tizenCLI}" package -t wgt -- "${DIST}" -o "${ROOT}"`;
-	}
-	
-	if (!run(packageCmd)) {
-		error('Packaging failed!');
-		process.exit(1);
-	}
-	
-	// Find the generated wgt in root
-	const wgtFiles = fs.readdirSync(ROOT).filter(f => f.endsWith('.wgt'));
-	if (wgtFiles.length === 0) {
-		error('No .wgt file generated!');
-		process.exit(1);
-	}
-	
-	const generatedWgt = path.join(ROOT, wgtFiles[0]);
-	const finalWgt = path.join(ROOT, wgtName);
-	
-	// Rename to consistent name if needed
-	if (generatedWgt !== finalWgt) {
-		if (fs.existsSync(finalWgt)) fs.unlinkSync(finalWgt);
-		fs.renameSync(generatedWgt, finalWgt);
-	}
-	
-	// Show final size
-	const stats = fs.statSync(finalWgt);
-	const sizeMB = (stats.size / 1024 / 1024).toFixed(2);
-	success(`Package created: ${finalWgt} (${sizeMB} MB)`);
+  log(`Packaging ${isSigned || process.env.TIZEN_SIGN_PROFILE ? 'signed' : 'unsigned'} .wgt...`);
+
+  const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
+  const version = pkg.version || '0.0.0';
+  const wgtName = `Moonfin-v${version}.wgt`;
+
+  const signProfile = process.env.TIZEN_SIGN_PROFILE;
+  const wantsSign = isSigned || !!signProfile;
+  const profile = signProfile || 'MoonfinCI'; // do NOT use "default" on CI
+
+  // IMPORTANT:
+  // - Use -s (signing profile) rather than --sign
+  // - Do NOT pass -o; instead package in place and then move the result
+  let packageCmd = `"${tizenCLI}" package -t wgt`;
+  if (wantsSign) packageCmd += ` -s "${profile}"`;
+  packageCmd += ` -- "${DIST}"`;
+
+  if (!run(packageCmd)) {
+    error('Packaging failed!');
+    process.exit(1);
+  }
+
+  // The CLI will place the .wgt in/near DIST in most setups, but to be safe search both.
+  const candidates = []
+    .concat(fs.readdirSync(DIST).filter(f => f.endsWith('.wgt')).map(f => path.join(DIST, f)))
+    .concat(fs.readdirSync(ROOT).filter(f => f.endsWith('.wgt')).map(f => path.join(ROOT, f)));
+
+  if (candidates.length === 0) {
+    error('No .wgt file generated!');
+    process.exit(1);
+  }
+
+  const generatedWgt = candidates[0];
+  const outDir = path.join(ROOT, 'build');
+  if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
+
+  const finalWgt = path.join(outDir, wgtName);
+  if (fs.existsSync(finalWgt)) fs.unlinkSync(finalWgt);
+  fs.renameSync(generatedWgt, finalWgt);
+
+  const stats = fs.statSync(finalWgt);
+  const sizeMB = (stats.size / 1024 / 1024).toFixed(2);
+  success(`Package created: ${finalWgt} (${sizeMB} MB)`);
 	
 	// Step 8: Install to TV (if requested)
 	if (shouldInstall) {
