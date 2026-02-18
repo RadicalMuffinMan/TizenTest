@@ -20,8 +20,7 @@ jobs:
         tizen: ["5.6"]
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -29,19 +28,17 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: npm
 
-      - name: Setup Java (required by Tizen tools)
+      - name: Setup Java (Tizen CLI runs on Java)
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "11"
 
-      - name: Install OS dependencies (Tizen prerequisites)
-        shell: bash
+      - name: Install OS dependencies
         run: |
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y curl unzip zip cpio rpm2cpio
-          # Tizen docs mention libwebkitgtk-1.0-0; keep a fallback.
           sudo apt-get install -y libwebkitgtk-1.0-0 || sudo apt-get install -y libwebkit2gtk-4.0-37
 
       - name: Cache Tizen Studio Web CLI
@@ -53,107 +50,84 @@ jobs:
 
       - name: Install Tizen Studio Web CLI
         if: steps.cache-tizen.outputs.cache-hit != 'true'
-        shell: bash
         run: |
           set -euo pipefail
           curl -fsSL -o tizen-installer.bin \
             "https://download.tizen.org/sdk/Installer/tizen-studio_${{ matrix.tizen }}/web-cli_Tizen_Studio_${{ matrix.tizen }}_ubuntu-64.bin"
           chmod +x tizen-installer.bin
           ./tizen-installer.bin --accept-license --no-java-check "$HOME/tizen-studio"
-          test -x "$HOME/tizen-studio/tools/ide/bin/tizen" || true
-          test -x "$HOME/tizen-studio/tools/command-line/bin/tizen" || true
 
-      - name: Add Tizen CLI to PATH (robust)
-        shell: bash
+      - name: Add Tizen CLI to PATH + verify
         run: |
           set -euo pipefail
-
-          # Common locations for the 'tizen' CLI in web-cli installs:
           echo "$HOME/tizen-studio/tools/ide/bin" >> "$GITHUB_PATH"
           echo "$HOME/tizen-studio/tools/command-line/bin" >> "$GITHUB_PATH"
           echo "$HOME/tizen-studio/tools" >> "$GITHUB_PATH"
-
-          # Debug what is actually present
-          ls -la "$HOME/tizen-studio/tools" || true
-          find "$HOME/tizen-studio/tools" -maxdepth 5 -type f -name tizen -print || true
-
-      - name: Verify Tizen CLI
-        shell: bash
-        run: |
-          set -euo pipefail
           command -v tizen
           tizen version
 
-      - name: Configure signing profile (always)
+      - name: Create CI signing profile (write profiles.xml directly)
         id: signing
-        shell: bash
-        env:
-          TIZEN_AUTHOR_P12_B64: ${{ secrets.TIZEN_AUTHOR_P12_B64 }}
-          TIZEN_AUTHOR_P12_PASSWORD: ${{ secrets.TIZEN_AUTHOR_P12_PASSWORD }}
-          TIZEN_PROFILE_NAME: ${{ secrets.TIZEN_PROFILE_NAME }}
         run: |
           set -euo pipefail
 
-          PROFILE="${TIZEN_PROFILE_NAME:-MoonfinCI}"
+          PROFILE="MoonfinCI"
           echo "profile=$PROFILE" >> "$GITHUB_OUTPUT"
 
-          # Use a fresh per-run data dir; do NOT cache this (contains certs).
-          mkdir -p "$HOME/tizen-studio-data/ide/keystore"
-          tizen cli-config -g "default.profiles.path=$HOME/tizen-studio-data/ide/keystore/profiles.xml"
+          # Use a simple password (Tizen has had issues with special chars in some setups). :contentReference[oaicite:1]{index=1}
+          PASS="cipass1234"
 
-          if [[ -n "${TIZEN_AUTHOR_P12_B64:-}" && -n "${TIZEN_AUTHOR_P12_PASSWORD:-}" ]]; then
-            echo "Using author cert from secrets"
-            mkdir -p "$HOME/tizen-studio-data/keystore/author"
-            echo "$TIZEN_AUTHOR_P12_B64" | base64 -d > "$HOME/tizen-studio-data/keystore/author/author.p12"
-            chmod 600 "$HOME/tizen-studio-data/keystore/author/author.p12"
-            PASS="$TIZEN_AUTHOR_P12_PASSWORD"
-            AUTHOR="$HOME/tizen-studio-data/keystore/author/author.p12"
-          else
-            echo "No secrets available (PR from fork, etc). Generating ephemeral author cert for CI."
-            PASS="ci-password"
-            # Generates author.p12 under $HOME/tizen-studio-data/keystore/author by default.
-            tizen certificate \
-              -a "$PROFILE" -p "$PASS" \
-              -c US -s NY -ct "New York" -o "CI" -u "CI" \
-              -n "CI Build" -e "ci@example.invalid" \
-              -f author
-            AUTHOR="$HOME/tizen-studio-data/keystore/author/author.p12"
-          fi
+          # Generate an ephemeral author cert (creates: ~/tizen-studio-data/keystore/author/author.p12)
+          tizen certificate \
+            -a "$PROFILE" -p "$PASS" \
+            -c US -s NY -ct "New York" -o "CI" -u "CI" \
+            -n "CI Build" -e "ci@example.invalid" \
+            -f author
 
-          tizen security-profiles add -n "$PROFILE" -a "$AUTHOR" -p "$PASS"
-          tizen security-profiles list
+          AUTHOR="$HOME/tizen-studio-data/keystore/author/author.p12"
+          test -f "$AUTHOR"
 
-      - name: Install Node dependencies
-        shell: bash
+          # Tizen CLI is already loading from: ~/tizen-studio-data/profile/profiles.xml
+          mkdir -p "$HOME/tizen-studio-data/profile"
+
+          DEV_CA="$HOME/tizen-studio/tools/certificate-generator/certificates/developer/tizen-developer-ca.cer"
+          DIST_CA="$HOME/tizen-studio/tools/certificate-generator/certificates/distributor/tizen-distributor-ca.cer"
+          DIST_P12="$HOME/tizen-studio/tools/certificate-generator/certificates/distributor/tizen-distributor-signer.p12"
+          DIST_PASS="tizenpkcs12passfordsigner"
+
+          test -f "$DEV_CA"
+          test -f "$DIST_CA"
+          test -f "$DIST_P12"
+
+          cat > "$HOME/tizen-studio-data/profile/profiles.xml" <<EOF
+          <?xml version="1.0" encoding="UTF-8" standalone="no"?>
+          <profiles version="3.1">
+            <profile name="$PROFILE">
+              <profileitem ca="$DEV_CA" distributor="0" key="$AUTHOR" password="$PASS" rootca=""/>
+              <profileitem ca="$DIST_CA" distributor="1" key="$DIST_P12" password="$DIST_PASS" rootca=""/>
+            </profile>
+          </profiles>
+          EOF
+
+          echo "Wrote profiles.xml:"
+          sed -n '1,120p' "$HOME/tizen-studio-data/profile/profiles.xml"
+
+      - name: Install Node deps
         run: |
           set -euo pipefail
           npm install --force
 
-      - name: Build Enact (production dist/)
-        shell: bash
-        run: |
-          set -euo pipefail
-          npx enact pack -p
-
-      - name: Build WGT (always signed in CI)
-        shell: bash
+      - name: Build WGT (script runs enact pack -p internally)
         env:
           TIZEN_SIGN_PROFILE: ${{ steps.signing.outputs.profile }}
         run: |
           set -euo pipefail
           node scripts/build-wgt.js --signed
 
-      - name: Read version
-        id: version
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
-
       - name: Upload WGT artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Moonfin-Tizen-v${{ steps.version.outputs.version }}-node${{ matrix.node }}-tizen${{ matrix.tizen }}
+          name: wgt-node${{ matrix.node }}
           path: |
             build/*.wgt
             *.wgt
